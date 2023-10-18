@@ -1,0 +1,34 @@
+name: dms_datastore_ui
+channels:
+  - cadwr-dms
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python
+  - pip
+  - ipykernel
+  - beautifulsoup4
+  - vtools3
+  - pandas>=2
+  - xarray
+  - schimpy # remove this!
+  - matplotlib
+  - scikit-learn
+  - contourpy
+  - hvplot # =0.8.1
+  - geoviews
+  - holoviews
+  - jupyter_bokeh
+  - panel
+  - diskcache
+  - joblib
+  - fonttools
+  - pyparsing
+  - kiwisolver
+  - dms-datastore
+#  - pip:
+#     - -e git+https://github.com/CADWRDeltaModeling/dms_datastore_ui#egg=dms_datastore_ui
+# alternatively if you want to develop ...
+# git clone this repo
+# conda env create -f environment.yml
+# pip install --no-deps -e . 
