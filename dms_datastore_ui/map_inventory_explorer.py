@@ -5,7 +5,7 @@
 
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 import pandas as pd
 import warnings
@@ -64,8 +64,7 @@ class StationInventoryExplorer(param.Parameterized):
     Show station inventory on map and select to display data available
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
-    time_window = param.String(default='10D', regex='\d+[H|D]',
-                               doc='timewindow from end of data in hours(H) or days (D)')
+    time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()))
     repo_level = param.Selector(objects=['formatted', 'screened'], default='formatted',
                                 doc='repository level (sub directory) under which data is found')
     parameter_type = param.ListSelector(objects=['all'],
@@ -181,8 +180,7 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = get_station_data_for_filename(os.path.join(self.repo_level, filename), self.dir)
-        df = df.loc[slice(
-            df.index[-1]-pd.Timedelta(self.time_window), df.index[-1]), :]
+        df = df.loc[slice(*self.time_window), :]
         return df
 
     def update_plots(self, event):
@@ -240,7 +238,8 @@ class StationInventoryExplorer(param.Parameterized):
         return self.tmap*self.map_station_inventory
 
     def create_maps_view(self):
-        col1 = pn.Column(self.param, pn.bind(self.get_map_of_stations, vartype=self.param.parameter_type), width=600)
+        control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
+        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, vartype=self.param.parameter_type), width=600)
         col2 = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
