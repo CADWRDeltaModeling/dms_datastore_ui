@@ -21,6 +21,8 @@ gv.extension('bokeh')
 import panel as pn
 pn.extension('tabulator')
 import param
+#
+from vtools.functions.filter import godin
 
 # this should be a util function
 def find_lastest_fname(pattern, dir='.'):
@@ -65,13 +67,14 @@ class StationInventoryExplorer(param.Parameterized):
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
     time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()))
-    repo_level = param.Selector(objects=['formatted', 'screened'], default='formatted',
+    repo_level = param.Selector(objects=['formatted_1yr', 'screened'], default='formatted_1yr',
                                 doc='repository level (sub directory) under which data is found')
     parameter_type = param.ListSelector(objects=['all'],
                                     default=['all'],
                                     doc='parameter type'
                                     )
     show_legend = param.Boolean(default=True)
+    godin_filter = param.Boolean(default=False, doc='Apply Godin filter to data')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -151,16 +154,6 @@ class StationInventoryExplorer(param.Parameterized):
             print(stackmsg)
             return hv.Div(f'<h3> Exception while fetching data </h3> <pre>{stackmsg}</pre>')
 
-    def create_hvplot(self, r):
-        filename = r['filename']
-        param = r['param']
-        unit = r['unit']
-        station_id = r['station_id']
-        agency = r['agency']
-        agency_id_dbase = r['agency_id_dbase']
-        df = self.get_data_for(r)
-        df.hvplot(y='value', by='param', groupby='param', ylabel=f'{param}({unit})', xlabel='Time', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True)
-
     def create_curve(self, r):
         filename = r['filename']
         param = r['param']
@@ -169,8 +162,10 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r)
+        if self.godin_filter:
+            df['value'] = godin(df['value'])
         crv = hv.Curve(df[['value']]).redim(value=f'{station_id}/{param}', datetime='Time')
-        return crv.opts(ylabel=f'{param}({unit})', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True, active_tools=['wheel_zoom'])
+        return crv.opts(ylabel=f'{param}({unit})', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def get_data_for(self, r):
         filename = r['filename']
@@ -182,6 +177,14 @@ class StationInventoryExplorer(param.Parameterized):
         df = get_station_data_for_filename(os.path.join(self.repo_level, filename), self.dir)
         df = df.loc[slice(*self.time_window), :]
         return df
+
+    def cache(self):
+        # get unique filenames
+        filenames = self.df_dataset_inventory['filename'].unique()
+        print('Caching: ', len(filenames), ' files')
+        for i, filename in enumerate(filenames):
+            print(f'Caching {i} ::{filename}')
+            get_station_data_for_filename(os.path.join(self.repo_level, filename), self.dir)
 
     def update_plots(self, event):
         self.plot_panel.loading = True
@@ -211,7 +214,7 @@ class StationInventoryExplorer(param.Parameterized):
     def update_data_table(self, dfs):
         # if attribute display_table is not set, create it
         if not hasattr(self, 'display_table'):
-            column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '5%', 'lon': '5%', 'name': '25%', 
+            column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '5%', 'lon': '5%', 'name': '25%',
                                 'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '5%', 'unit': '5%'}
             self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map)
             self.plot_button = pn.widgets.Button(name="Plot Selected", button_type="primary")
@@ -249,6 +252,8 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--dir', help='directory with station inventory')
+    # add argument optional to run caching
+    parser.add_argument('--cache', help='use caching', action='store_true')
     args = parser.parse_args()
     # if no args exit with help message
     if args.dir is None:
@@ -256,7 +261,12 @@ if __name__ == '__main__':
         exit(0)
     else:
         dir = args.dir
-    #
     explorer = StationInventoryExplorer(dir)
-    #
-    explorer.create_maps_view().show(title='Station Inventory Explorer')
+    if args.cache:
+        # run caching
+        print('Clearing cache')
+        cache.clear()
+        print('Caching data')
+        explorer.cache()
+    else: # display ui
+        explorer.create_maps_view().show(title='Station Inventory Explorer')
