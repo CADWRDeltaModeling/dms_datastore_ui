@@ -162,9 +162,11 @@ class StationInventoryExplorer(param.Parameterized):
         df = self.get_data_for(r)
         if self.apply_filter:
             if self.filter_type == 'cosine_lanczos':
-                df['value'] = cosine_lanczos(df['value'], '40H')
+                if len(df) > 0:
+                    df['value'] = cosine_lanczos(df['value'], '40H')
             else:
-                df['value'] = godin(df['value'])
+                if len(df) > 0:
+                    df['value'] = godin(df['value'])
         crv = hv.Curve(df[['value']]).redim(value=f'{station_id}/{param}', datetime='Time')
         return crv.opts(ylabel=f'{param}({unit})', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
