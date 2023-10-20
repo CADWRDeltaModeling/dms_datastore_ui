@@ -37,7 +37,7 @@ def find_lastest_fname(pattern, dir='.'):
 
 #!pip install diskcache
 import diskcache
-cache = diskcache.Cache('./cache')
+cache = diskcache.Cache('./cache', size_limit=1e11)
 import dms_datastore
 from dms_datastore.read_ts import read_ts
 
