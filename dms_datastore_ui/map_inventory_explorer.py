@@ -22,7 +22,7 @@ import panel as pn
 pn.extension('tabulator')
 import param
 #
-from vtools.functions.filter import godin
+from vtools.functions.filter import godin, cosine_lanczos
 
 # this should be a util function
 def find_lastest_fname(pattern, dir='.'):
@@ -74,7 +74,8 @@ class StationInventoryExplorer(param.Parameterized):
                                     doc='parameter type'
                                     )
     show_legend = param.Boolean(default=True)
-    godin_filter = param.Boolean(default=False, doc='Apply Godin filter to data')
+    apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
+    filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -86,9 +87,6 @@ class StationInventoryExplorer(param.Parameterized):
         # replace nan with empty string for column subloc
         self.df_dataset_inventory['subloc'] = self.df_dataset_inventory['subloc'].fillna('')
         self.param.parameter_type.objects = ['all'] +  list(self.df_dataset_inventory['param'].unique())
-        self.map = self.df_dataset_inventory.hvplot.points(x='lon', y='lat', by='agency',
-                                                           tiles='CartoLight', geo=True, projection=cartopy.crs.GOOGLE_MERCATOR,
-                                                           hover_cols='all', s=35).opts(active_tools=['wheel_zoom'])
         group_cols = ['station_id', 'subloc', 'name', 'unit', 'param',
                       'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
         self.df_station_inventory = self.df_dataset_inventory.groupby(
@@ -162,8 +160,11 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r)
-        if self.godin_filter:
-            df['value'] = godin(df['value'])
+        if self.apply_filter:
+            if self.filter_type == 'cosine_lanczos':
+                df['value'] = cosine_lanczos(df['value'], '40H')
+            else:
+                df['value'] = godin(df['value'])
         crv = hv.Curve(df[['value']]).redim(value=f'{station_id}/{param}', datetime='Time')
         return crv.opts(ylabel=f'{param}({unit})', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
