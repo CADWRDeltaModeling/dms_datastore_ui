@@ -193,24 +193,28 @@ class StationInventoryExplorer(param.Parameterized):
         self.plot_panel.loading = False
 
     def download_data(self):
-        df = self.display_table.value.iloc[self.display_table.selection]
-        df = df.merge(self.df_dataset_inventory)
-        dflist = []
-        for i, r in df.iterrows():
-            dfdata = self.get_data_for(r)
-            param = r['param']
-            unit = r['unit']
-            subloc = r['subloc']
-            station_id = r['station_id']
-            agency = r['agency']
-            agency_id_dbase = r['agency_id_dbase']
-            dfdata.columns = [f'{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}']
-            dflist.append(dfdata)
-        dfdata = pd.concat(dflist, axis=1)
-        sio = StringIO()
-        dfdata.to_csv(sio)
-        sio.seek(0)
-        return sio
+        self.download_button.loading = True
+        try:
+            df = self.display_table.value.iloc[self.display_table.selection]
+            df = df.merge(self.df_dataset_inventory)
+            dflist = []
+            for i, r in df.iterrows():
+                dfdata = self.get_data_for(r)
+                param = r['param']
+                unit = r['unit']
+                subloc = r['subloc']
+                station_id = r['station_id']
+                agency = r['agency']
+                agency_id_dbase = r['agency_id_dbase']
+                dfdata.columns = [f'{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}']
+                dflist.append(dfdata)
+            dfdata = pd.concat(dflist, axis=1)
+            sio = StringIO()
+            dfdata.to_csv(sio)
+            sio.seek(0)
+            return sio
+        finally:
+            self.download_button.loading = False
 
     def update_data_table(self, dfs):
         # if attribute display_table is not set, create it
