@@ -107,7 +107,7 @@ class StationInventoryExplorer(param.Parameterized):
         self.current_station_inventory = self.df_station_inventory
         self.map_station_inventory = gv.Points(self.current_station_inventory, kdims=['lon', 'lat']
                                               ).opts(size=6, color=dim('param'), cmap='Category10', tools=[hover], height=800)
-        self.map_station_inventory = self.map_station_inventory.opts(opts.Points(tools=['tap', hover], #'hover'],
+        self.map_station_inventory = self.map_station_inventory.opts(opts.Points(tools=['tap', hover, 'lasso_select', 'box_select'],
                                                                                  nonselection_alpha=0.3,  # nonselection_color='gray',
                                                                                  size=8)
                                                                      ).opts(frame_width=500, active_tools=['wheel_zoom'])
@@ -214,8 +214,8 @@ class StationInventoryExplorer(param.Parameterized):
     def update_data_table(self, dfs):
         # if attribute display_table is not set, create it
         if not hasattr(self, 'display_table'):
-            column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '5%', 'lon': '5%', 'name': '25%',
-                                'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '5%', 'unit': '5%'}
+            column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '8%', 'lon': '8%', 'name': '25%',
+                                'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '7%', 'unit': '8%'}
             self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map)
             self.plot_button = pn.widgets.Button(name="Plot Selected", button_type="primary")
             self.plot_button.on_click(self.update_plots)
