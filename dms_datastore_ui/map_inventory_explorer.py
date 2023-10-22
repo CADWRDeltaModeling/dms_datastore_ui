@@ -67,7 +67,7 @@ class StationInventoryExplorer(param.Parameterized):
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
     time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()))
-    repo_level = param.Selector(objects=['formatted_1yr', 'screened'], default='formatted_1yr',
+    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['formatted_1yr'],
                                 doc='repository level (sub directory) under which data is found')
     parameter_type = param.ListSelector(objects=['all'],
                                     default=['all'],
@@ -138,28 +138,29 @@ class StationInventoryExplorer(param.Parameterized):
         try:
             layout_map = {}
             for i, r in df.iterrows():
-                crv = self.create_curve(r)
-                unit = r['unit']
-                if unit not in layout_map:
-                    layout_map[unit] = []
-                layout_map[unit].append(crv)
-            if len(layout_map) == 0:
-                return hv.Div('<h3>Select rows from table and click on button</h3>')
-            else:
-                return hv.Layout([hv.Overlay(layout_map[k]) for k in layout_map]).cols(1).opts(shared_axes=False)
+                for repo_level in self.repo_level:
+                    crv = self.create_curve(r, repo_level)
+                    unit = r['unit']
+                    if unit not in layout_map:
+                        layout_map[unit] = []
+                    layout_map[unit].append(crv)
+                if len(layout_map) == 0:
+                    return hv.Div('<h3>Select rows from table and click on button</h3>')
+                else:
+                    return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right') for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
             return hv.Div(f'<h3> Exception while fetching data </h3> <pre>{stackmsg}</pre>')
 
-    def create_curve(self, r):
+    def create_curve(self, r, repo_level):
         filename = r['filename']
         param = r['param']
         unit = r['unit']
         station_id = r['station_id']
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
-        df = self.get_data_for(r)
+        df = self.get_data_for(r, repo_level)
         if self.apply_filter:
             if self.filter_type == 'cosine_lanczos':
                 if len(df) > 0:
@@ -167,27 +168,27 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 if len(df) > 0:
                     df['value'] = godin(df['value'])
-        crv = hv.Curve(df[['value']]).redim(value=f'{station_id}/{param}', datetime='Time')
-        return crv.opts(ylabel=f'{param}({unit})', title=f'{station_id}::{agency}/{agency_id_dbase}', show_legend=self.show_legend, responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
+        crv = hv.Curve(df[['value']]).redim(value=f'{repo_level}/{station_id}/{param}', datetime='Time')
+        return crv.opts(ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
-    def get_data_for(self, r):
+    def get_data_for(self, r, repo_level):
         filename = r['filename']
         param = r['param']
         unit = r['unit']
         station_id = r['station_id']
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
-        df = get_station_data_for_filename(os.path.join(self.repo_level, filename), self.dir)
+        df = get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
         df = df.loc[slice(*self.time_window), :]
         return df
 
-    def cache(self):
+    def cache(self, repo_level):
         # get unique filenames
         filenames = self.df_dataset_inventory['filename'].unique()
         print('Caching: ', len(filenames), ' files')
         for i, filename in enumerate(filenames):
             print(f'Caching {i} ::{filename}')
-            get_station_data_for_filename(os.path.join(self.repo_level, filename), self.dir)
+            get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
 
     def update_plots(self, event):
         self.plot_panel.loading = True
@@ -201,15 +202,16 @@ class StationInventoryExplorer(param.Parameterized):
             df = df.merge(self.df_dataset_inventory)
             dflist = []
             for i, r in df.iterrows():
-                dfdata = self.get_data_for(r)
-                param = r['param']
-                unit = r['unit']
-                subloc = r['subloc']
-                station_id = r['station_id']
-                agency = r['agency']
-                agency_id_dbase = r['agency_id_dbase']
-                dfdata.columns = [f'{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}']
-                dflist.append(dfdata)
+                for repo_level in self.repo_level:
+                    dfdata = self.get_data_for(r, repo_level)
+                    param = r['param']
+                    unit = r['unit']
+                    subloc = r['subloc']
+                    station_id = r['station_id']
+                    agency = r['agency']
+                    agency_id_dbase = r['agency_id_dbase']
+                    dfdata.columns = [f'{repo_level}/{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}']
+                    dflist.append(dfdata)
             dfdata = pd.concat(dflist, axis=1)
             sio = StringIO()
             dfdata.to_csv(sio)
@@ -274,6 +276,8 @@ if __name__ == '__main__':
         print('Clearing cache')
         cache.clear()
         print('Caching data')
-        explorer.cache()
+        for repo_level in explorer.repo_level:
+            print('Caching ', repo_level)
+            explorer.cache(repo_level)
     else: # display ui
         explorer.create_maps_view().show(title='Station Inventory Explorer')
