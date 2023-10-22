@@ -60,7 +60,13 @@ def full_stack():
     return stackstr
 
 from bokeh.models import HoverTool
-
+from bokeh.core.enums import MarkerType
+#print(list(MarkerType))
+#['asterisk', 'circle', 'circle_cross', 'circle_dot', 'circle_x', 'circle_y', 'cross', 'dash', 'diamond', 'diamond_cross', 'diamond_dot', 'dot', 'hex', 'hex_dot', 'inverted_triangle', 'plus', 'square', 'square_cross', 'square_dot', 'square_pin', 'square_x', 'star', 'star_dot', 'triangle', 'triangle_dot', 'triangle_pin', 'x', 'y']
+param_to_marker_map = {'elev': 'square', 'predictions': 'square_x',
+                       'flow': 'circle', 'velocity': 'circle_dot', 'temp': 'cross',
+                       'do': 'asterisk', 'ec': 'triangle', 'ssc': 'diamond',
+                       'ph': 'plus', 'salinity': 'inverted_triangle', 'cla': 'dot', 'fdom': 'hex'}
 class StationInventoryExplorer(param.Parameterized):
     '''
     Show station inventory on map and select to display data available
@@ -76,6 +82,7 @@ class StationInventoryExplorer(param.Parameterized):
     show_legend = param.Boolean(default=True)
     apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
     filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos')
+    map_color_category = param.Selector(objects=['param', 'agency'  ], default='param')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -86,7 +93,8 @@ class StationInventoryExplorer(param.Parameterized):
             os.path.join(self.dir, self.inventory_file))
         # replace nan with empty string for column subloc
         self.df_dataset_inventory['subloc'] = self.df_dataset_inventory['subloc'].fillna('')
-        self.param.parameter_type.objects = ['all'] +  list(self.df_dataset_inventory['param'].unique())
+        unique_params = self.df_dataset_inventory['param'].unique()
+        self.param.parameter_type.objects = ['all'] +  list(unique_params)
         group_cols = ['station_id', 'subloc', 'name', 'unit', 'param',
                       'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
         self.df_station_inventory = self.df_dataset_inventory.groupby(
@@ -103,8 +111,11 @@ class StationInventoryExplorer(param.Parameterized):
         ]
         hover = HoverTool(tooltips=tooltips)
         self.current_station_inventory = self.df_station_inventory
+        #param_to_marker_map = {p: m for p, m in zip(unique_params, list(MarkerType)[:len(unique_params)])}
         self.map_station_inventory = gv.Points(self.current_station_inventory, kdims=['lon', 'lat']
-                                              ).opts(size=6, color=dim('param'), cmap='Category10', tools=[hover], height=800)
+                                              ).opts(size=6, color=dim(self.map_color_category), cmap='Category10',
+                                                     marker=dim('param').categorize(param_to_marker_map),
+                                                     tools=[hover], height=800)
         self.map_station_inventory = self.map_station_inventory.opts(opts.Points(tools=['tap', hover, 'lasso_select', 'box_select'],
                                                                                  nonselection_alpha=0.3,  # nonselection_color='gray',
                                                                                  size=8)
@@ -144,10 +155,10 @@ class StationInventoryExplorer(param.Parameterized):
                     if unit not in layout_map:
                         layout_map[unit] = []
                     layout_map[unit].append(crv)
-                if len(layout_map) == 0:
-                    return hv.Div('<h3>Select rows from table and click on button</h3>')
-                else:
-                    return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right') for k in layout_map]).cols(1).opts(shared_axes=False)
+            if len(layout_map) == 0:
+                return hv.Div('<h3>Select rows from table and click on button</h3>')
+            else:
+                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right') for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
@@ -240,18 +251,18 @@ class StationInventoryExplorer(param.Parameterized):
             self.display_table.value = dfs
         return self.plots_panel
 
-    def get_map_of_stations(self, vartype):
+    def get_map_of_stations(self, vartype, color_category):
         if len(vartype)==1 and vartype[0] == 'all':
             dfs = self.df_station_inventory
         else:
             dfs = self.df_station_inventory[self.df_station_inventory['param'].isin(vartype)]
         self.current_station_inventory = dfs
         self.map_station_inventory.data = self.current_station_inventory
-        return self.tmap*self.map_station_inventory
+        return self.tmap*self.map_station_inventory.opts(color=dim(color_category))
 
     def create_maps_view(self):
         control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
-        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, vartype=self.param.parameter_type), width=600)
+        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, vartype=self.param.parameter_type, color_category=self.param.map_color_category), width=600)
         col2 = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
