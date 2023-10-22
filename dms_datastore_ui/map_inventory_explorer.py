@@ -20,6 +20,7 @@ import geoviews as gv
 gv.extension('bokeh')
 import panel as pn
 pn.extension('tabulator')
+pn.extension(notifications=True)
 import param
 #
 from vtools.functions.filter import godin, cosine_lanczos
@@ -189,7 +190,12 @@ class StationInventoryExplorer(param.Parameterized):
         station_id = r['station_id']
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
-        df = get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
+        try:
+            df = get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
+        except Exception as e:
+            print(e)
+            pn.state.notifications.error(f'Error while fetching data for {repo_level}/{filename}: {e}')
+            df=pd.DataFrame(columns=['value'])
         df = df.loc[slice(*self.time_window), :]
         return df
 
