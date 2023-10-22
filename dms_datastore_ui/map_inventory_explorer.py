@@ -174,6 +174,7 @@ class StationInventoryExplorer(param.Parameterized):
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r, repo_level)
         if self.apply_filter:
+            df = df.interpolate(limit_direction='both', limit=10)
             if self.filter_type == 'cosine_lanczos':
                 if len(df) > 0:
                     df['value'] = cosine_lanczos(df['value'], '40H')
