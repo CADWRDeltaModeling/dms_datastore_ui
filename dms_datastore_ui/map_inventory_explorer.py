@@ -74,7 +74,7 @@ class StationInventoryExplorer(param.Parameterized):
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
     time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()))
-    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['formatted_1yr'],
+    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['screened'],
                                 doc='repository level (sub directory) under which data is found')
     parameter_type = param.ListSelector(objects=['all'],
                                     default=['all'],
@@ -84,6 +84,7 @@ class StationInventoryExplorer(param.Parameterized):
     apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
     filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos')
     map_color_category = param.Selector(objects=['param', 'agency'  ], default='param')
+    use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -94,8 +95,8 @@ class StationInventoryExplorer(param.Parameterized):
             os.path.join(self.dir, self.inventory_file))
         # replace nan with empty string for column subloc
         self.df_dataset_inventory['subloc'] = self.df_dataset_inventory['subloc'].fillna('')
-        unique_params = self.df_dataset_inventory['param'].unique()
-        self.param.parameter_type.objects = ['all'] +  list(unique_params)
+        self.unique_params = self.df_dataset_inventory['param'].unique()
+        self.param.parameter_type.objects = ['all'] +  list(self.unique_params)
         group_cols = ['station_id', 'subloc', 'name', 'unit', 'param',
                       'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
         self.df_station_inventory = self.df_dataset_inventory.groupby(
@@ -112,10 +113,9 @@ class StationInventoryExplorer(param.Parameterized):
         ]
         hover = HoverTool(tooltips=tooltips)
         self.current_station_inventory = self.df_station_inventory
-        #param_to_marker_map = {p: m for p, m in zip(unique_params, list(MarkerType)[:len(unique_params)])}
         self.map_station_inventory = gv.Points(self.current_station_inventory, kdims=['lon', 'lat']
                                               ).opts(size=6, color=dim(self.map_color_category), cmap='Category10',
-                                                     marker=dim('param').categorize(param_to_marker_map),
+                                                     #marker=dim('param').categorize(param_to_marker_map),
                                                      tools=[hover], height=800)
         self.map_station_inventory = self.map_station_inventory.opts(opts.Points(tools=['tap', hover, 'lasso_select', 'box_select'],
                                                                                  nonselection_alpha=0.3,  # nonselection_color='gray',
@@ -130,6 +130,12 @@ class StationInventoryExplorer(param.Parameterized):
         dfs = self.current_station_inventory.iloc[index]
         # return a UI with controls to plot and show data
         return self.update_data_table(dfs)
+
+    def get_param_to_marker_map(self):
+        if self.use_symbols_for_params:
+            return param_to_marker_map
+        else:
+            return {p: 'circle' for p in self.unique_params}
 
     def save_dataframe(self, event):
         df = self.display_table.value.iloc[self.display_table.selection]
@@ -262,18 +268,21 @@ class StationInventoryExplorer(param.Parameterized):
             self.display_table.value = dfs
         return self.plots_panel
 
-    def get_map_of_stations(self, vartype, color_category):
+    def get_map_of_stations(self, vartype, color_category, symbol_category):
         if len(vartype)==1 and vartype[0] == 'all':
             dfs = self.df_station_inventory
         else:
             dfs = self.df_station_inventory[self.df_station_inventory['param'].isin(vartype)]
         self.current_station_inventory = dfs
         self.map_station_inventory.data = self.current_station_inventory
-        return self.tmap*self.map_station_inventory.opts(color=dim(color_category))
+        return self.tmap*self.map_station_inventory.opts(color=dim(color_category), marker=dim('param').categorize(self.get_param_to_marker_map()))
 
     def create_maps_view(self):
         control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
-        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, vartype=self.param.parameter_type, color_category=self.param.map_color_category), width=600)
+        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, 
+                                                  vartype=self.param.parameter_type, 
+                                                  color_category=self.param.map_color_category,
+                                                  symbol_category=self.param.use_symbols_for_params), width=600)
         col2 = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
