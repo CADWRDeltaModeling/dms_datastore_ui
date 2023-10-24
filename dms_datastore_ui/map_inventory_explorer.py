@@ -64,7 +64,7 @@ from bokeh.models import HoverTool
 from bokeh.core.enums import MarkerType
 #print(list(MarkerType))
 #['asterisk', 'circle', 'circle_cross', 'circle_dot', 'circle_x', 'circle_y', 'cross', 'dash', 'diamond', 'diamond_cross', 'diamond_dot', 'dot', 'hex', 'hex_dot', 'inverted_triangle', 'plus', 'square', 'square_cross', 'square_dot', 'square_pin', 'square_x', 'star', 'star_dot', 'triangle', 'triangle_dot', 'triangle_pin', 'x', 'y']
-param_to_marker_map = {'elev': 'square', 'predictions': 'square_x',
+param_to_marker_map = {'elev': 'square', 'predictions': 'square_x', 'turbidity':'diamond',
                        'flow': 'circle', 'velocity': 'circle_dot', 'temp': 'cross',
                        'do': 'asterisk', 'ec': 'triangle', 'ssc': 'diamond',
                        'ph': 'plus', 'salinity': 'inverted_triangle', 'cla': 'dot', 'fdom': 'hex'}
@@ -206,7 +206,11 @@ class StationInventoryExplorer(param.Parameterized):
         print('Caching: ', len(filenames), ' files')
         for i, filename in enumerate(filenames):
             print(f'Caching {i} ::{filename}')
-            get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
+            try:
+                get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
+            except Exception as e:
+                print(e)
+                print('Skipping', filename, 'due to error')
 
     def update_plots(self, event):
         self.plot_panel.loading = True
