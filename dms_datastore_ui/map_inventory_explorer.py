@@ -63,7 +63,10 @@ def full_stack():
 from bokeh.models import HoverTool
 from bokeh.core.enums import MarkerType
 #print(list(MarkerType))
-#['asterisk', 'circle', 'circle_cross', 'circle_dot', 'circle_x', 'circle_y', 'cross', 'dash', 'diamond', 'diamond_cross', 'diamond_dot', 'dot', 'hex', 'hex_dot', 'inverted_triangle', 'plus', 'square', 'square_cross', 'square_dot', 'square_pin', 'square_x', 'star', 'star_dot', 'triangle', 'triangle_dot', 'triangle_pin', 'x', 'y']
+#['asterisk', 'circle', 'circle_cross', 'circle_dot', 'circle_x', 'circle_y', 'cross', 'dash',
+# 'diamond', 'diamond_cross', 'diamond_dot', 'dot', 'hex', 'hex_dot', 'inverted_triangle', 'plus',
+# 'square', 'square_cross', 'square_dot', 'square_pin', 'square_x', 'star', 'star_dot',
+# 'triangle', 'triangle_dot', 'triangle_pin', 'x', 'y']
 param_to_marker_map = {'elev': 'square', 'predictions': 'square_x', 'turbidity':'diamond',
                        'flow': 'circle', 'velocity': 'circle_dot', 'temp': 'cross',
                        'do': 'asterisk', 'ec': 'triangle', 'ssc': 'diamond',
@@ -73,18 +76,17 @@ class StationInventoryExplorer(param.Parameterized):
     Show station inventory on map and select to display data available
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
-    time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()))
-    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['screened'],
-                                doc='repository level (sub directory) under which data is found')
+    time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()), doc="Time window for data. Default is last 10 days")
+    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['formatted_1yr'],
+                                doc='repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)')
     parameter_type = param.ListSelector(objects=['all'],
                                     default=['all'],
-                                    doc='parameter type'
+                                    doc='parameter type of data, e.g. flow, elev, temp, etc. You can select multiple parameters (ctrl+click) or all'
                                     )
-    show_legend = param.Boolean(default=True)
     apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
-    filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos')
-    map_color_category = param.Selector(objects=['param', 'agency'  ], default='param')
-    use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters')
+    filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos', doc='Filter type is cosine lanczos with a 40 hour cutoff or godin')
+    map_color_category = param.Selector(objects=['param', 'agency'  ], default='param', doc='Color by parameter or agency')
+    use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters. If not selected, all parameters will be shown as circles')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -253,14 +255,16 @@ class StationInventoryExplorer(param.Parameterized):
         if not hasattr(self, 'display_table'):
             column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '8%', 'lon': '8%', 'name': '25%',
                                 'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '7%', 'unit': '8%'}
-            self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map)
-            self.plot_button = pn.widgets.Button(name="Plot Selected", button_type="primary")
+            self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map, show_index=False)
+            self.plot_button = pn.widgets.Button(name="Plot", button_type="primary", icon='chart-line',
+                                                 description='Plots selected rows from the data table. Select rows and click on button. Multiple rows can be selected using ctrl+click')
             self.plot_button.on_click(self.update_plots)
             self.plot_panel = pn.panel(hv.Div('<h3>Select rows from table and click on button</h3>'))
             # add a button to trigger the save function
-            self.download_button = pn.widgets.FileDownload(callback=self.download_data, filename='dms_data.csv', button_type='success', embed=False)
-            gspec = pn.GridSpec(sizing_mode='stretch_both', max_height=3600, max_width=1600)
-            gspec[0,:3] = pn.Row(self.plot_button, self.download_button)
+            self.download_button = pn.widgets.FileDownload(label='Download', callback=self.download_data, filename='dms_data.csv',
+                                                           button_type='primary', icon='file-download', embed=False)
+            gspec = pn.GridSpec(sizing_mode='stretch_both')#, max_height=3600, max_width=1600)
+            gspec[0,:3] = pn.Row(self.plot_button, self.download_button, sizing_mode='stretch_height')
             gspec[1:3,0:10] = self.display_table
             gspec[3:10,0:10] = self.plot_panel
             self.plots_panel = pn.Row(gspec) # fails with object of type 'GridSpec' has no len()
@@ -279,12 +283,40 @@ class StationInventoryExplorer(param.Parameterized):
 
     def create_maps_view(self):
         control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
-        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations, 
-                                                  vartype=self.param.parameter_type, 
+        col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations,
+                                                  vartype=self.param.parameter_type,
                                                   color_category=self.param.map_color_category,
                                                   symbol_category=self.param.use_symbols_for_params), width=600)
         col2 = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
         return pn.Row(col1, col2, sizing_mode='stretch_both')
+
+    def create_view(self):
+        control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
+        control_widgets = pn.Column(
+        pn.Column(
+            pn.Param(self.param.time_window, widgets={"time_window": pn.widgets.DatetimeRangePicker}),
+            self.param.repo_level, self.param.parameter_type),
+        pn.Row(self.param.apply_filter, self.param.filter_type),
+        pn.Row(self.param.map_color_category, self.param.use_symbols_for_params))
+        map_display = pn.bind(self.get_map_of_stations,
+                                                  vartype=self.param.parameter_type,
+                                                  color_category=self.param.map_color_category,
+                                                  symbol_category=self.param.use_symbols_for_params)
+        sidebar_view = pn.Column(control_widgets, map_display)
+        main_view = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
+
+        # Add disclaimer about data hosted here
+        disclaimer_text = """
+        ## Disclaimer
+        The data hosted here is not official data. It is provided as a convenience to the public.
+        """
+        #
+        template = pn.template.MaterialTemplate(title='DMS Datastore',sidebar=[sidebar_view],
+                                                sidebar_width=650, header_color='blue', logo='https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png')
+        template.modal.append(disclaimer_text)
+        # Append a layout to the main area, to demonstrate the list-like API
+        template.main.append(main_view)
+        return template
 
 #!conda install -y -c conda-forge jupyter_bokeh
 if __name__ == '__main__':
@@ -311,4 +343,4 @@ if __name__ == '__main__':
             print('Caching ', repo_level)
             explorer.cache(repo_level)
     else: # display ui
-        explorer.create_maps_view().show(title='Station Inventory Explorer')
+        explorer.create_view().show(title='Station Inventory Explorer')
