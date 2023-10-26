@@ -87,6 +87,7 @@ class StationInventoryExplorer(param.Parameterized):
     filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos', doc='Filter type is cosine lanczos with a 40 hour cutoff or godin')
     map_color_category = param.Selector(objects=['param', 'agency'  ], default='param', doc='Color by parameter or agency')
     use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters. If not selected, all parameters will be shown as circles')
+    search_text = param.String(default='', doc='Search text to filter stations')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -139,6 +140,14 @@ class StationInventoryExplorer(param.Parameterized):
         else:
             return {p: 'circle' for p in self.unique_params}
 
+    @param.depends('search_text', watch=True)
+    def do_search(self):
+        # Create a boolean mask to select rows with matching text
+        mask = self.current_station_inventory.apply(lambda row: row.astype(str).str.contains(self.search_text, case=False).any(), axis=1)
+        # Use the boolean mask to select the matching rows
+        index = self.current_station_inventory.index[mask]
+        self.station_select.event(index = list(index)) # this should trigger show_inventory
+
     def save_dataframe(self, event):
         df = self.display_table.value.iloc[self.display_table.selection]
         df = df.merge(self.df_dataset_inventory)
@@ -171,7 +180,8 @@ class StationInventoryExplorer(param.Parameterized):
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
-            return hv.Div(f'<h3> Exception while fetching data </h3> <pre>{stackmsg}</pre>')
+            pn.state.notifications.error(f'Error while fetching data for {e}')
+            return hv.Div(f'<h3> Exception while fetching data </h3> <pre>{e}</pre>')
 
     def create_curve(self, r, repo_level):
         filename = r['filename']
@@ -291,20 +301,21 @@ class StationInventoryExplorer(param.Parameterized):
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
     def create_view(self):
-        control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
-        control_widgets = pn.Column(
-        pn.Column(
-            pn.Param(self.param.time_window, widgets={"time_window": pn.widgets.DatetimeRangePicker}),
-            self.param.repo_level, self.param.parameter_type),
-        pn.Row(self.param.apply_filter, self.param.filter_type),
-        pn.Row(self.param.map_color_category, self.param.use_symbols_for_params))
+        control_widgets = pn.Row(
+            pn.Column(
+                pn.Param(self.param.time_window, widgets={"time_window": pn.widgets.DatetimeRangePicker}),
+                        self.param.repo_level, self.param.parameter_type),
+            pn.Column(self.param.apply_filter, self.param.filter_type,
+                      self.param.map_color_category, self.param.use_symbols_for_params,
+                      self.param.search_text)
+        )
+        map_tooltip = pn.widgets.TooltipIcon(value='Map of stations. Click on a station to see data available in the table. See <a href="https://docs.bokeh.org/en/latest/docs/user_guide/interaction/tools.html">Bokeh Tools</a> for toolbar operation')
         map_display = pn.bind(self.get_map_of_stations,
                                                   vartype=self.param.parameter_type,
                                                   color_category=self.param.map_color_category,
                                                   symbol_category=self.param.use_symbols_for_params)
-        sidebar_view = pn.Column(control_widgets, map_display)
+        sidebar_view = pn.Column(control_widgets, pn.Column(pn.Row('Station Map',map_tooltip), map_display))
         main_view = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
-
         # Add disclaimer about data hosted here
         disclaimer_text = """
         ## Disclaimer

@@ -4,7 +4,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python
+  - python<3.12
   - pip
   - ipykernel
   - beautifulsoup4
@@ -31,4 +31,4 @@ dependencies:
 # alternatively if you want to develop ...
 # git clone this repo
 # conda env create -f environment.yml
-# pip install --no-deps -e . 
+# pip install --no-deps -e .
