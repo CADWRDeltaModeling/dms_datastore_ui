@@ -160,23 +160,40 @@ class StationInventoryExplorer(param.Parameterized):
             #agency_id_dbase = r['agency_id_dbase']
             dfdata.to_csv(f'saved_{agency}_{station_id}_{param}.csv')
 
+    def _append_to_title_map(self, title_map, r, repo_level):
+        value = title_map[r['unit']]
+        if repo_level not in value[0]:
+            value[0] += f',{repo_level}'
+        if r['station_id'] not in value[2]:
+            value[2] += f',{r["station_id"]}'
+        if r['agency'] not in value[3]:
+            value[3] += f',{r["agency"]}'
+        title_map[r['unit']] = value
+
+    def _create_title(self, v):
+        title = f'{v[1]} @ {v[2]} ({v[3]}::{v[0]})'
+        return title
+
     def create_plots(self, event):
         #df = self.display_table.selected_dataframe # buggy
         df = self.display_table.value.iloc[self.display_table.selection]
         df = df.merge(self.df_dataset_inventory)
         try:
             layout_map = {}
+            title_map = {}
             for i, r in df.iterrows():
                 for repo_level in self.repo_level:
                     crv = self.create_curve(r, repo_level)
                     unit = r['unit']
                     if unit not in layout_map:
                         layout_map[unit] = []
+                        title_map[unit] = [repo_level, r['param'], r['station_id'], r['agency']]
                     layout_map[unit].append(crv)
+                    self._append_to_title_map(title_map, r, repo_level)
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
             else:
-                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right', title=f'Data with units({k})') for k in layout_map]).cols(1).opts(shared_axes=False)
+                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right', title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
