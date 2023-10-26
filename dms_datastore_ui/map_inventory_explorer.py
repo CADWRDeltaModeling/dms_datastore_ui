@@ -176,7 +176,7 @@ class StationInventoryExplorer(param.Parameterized):
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
             else:
-                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right') for k in layout_map]).cols(1).opts(shared_axes=False)
+                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right', title=f'Data with units({k})') for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
@@ -273,7 +273,7 @@ class StationInventoryExplorer(param.Parameterized):
             # add a button to trigger the save function
             self.download_button = pn.widgets.FileDownload(label='Download', callback=self.download_data, filename='dms_data.csv',
                                                            button_type='primary', icon='file-download', embed=False)
-            gspec = pn.GridSpec(sizing_mode='stretch_both')#, max_height=3600, max_width=1600)
+            gspec = pn.GridSpec(sizing_mode='stretch_both')#,
             gspec[0,:3] = pn.Row(self.plot_button, self.download_button, sizing_mode='stretch_height')
             gspec[1:3,0:10] = self.display_table
             gspec[3:10,0:10] = self.plot_panel
