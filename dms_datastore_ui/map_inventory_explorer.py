@@ -90,6 +90,7 @@ class StationInventoryExplorer(param.Parameterized):
     search_text = param.String(default='', doc='Search text to filter stations')
     show_legend = param.Boolean(default=True, doc='Show legend')
     legend_position = param.Selector(objects=['top_right', 'top_left', 'bottom_right', 'bottom_left'], default='top_right', doc='Legend position')
+    sensible_range_yaxis = param.Boolean(default=False, doc='Sensible range (1st and 99th percentile) or auto range for y axis')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -175,6 +176,17 @@ class StationInventoryExplorer(param.Parameterized):
         title = f'{v[1]} @ {v[2]} ({v[3]}::{v[0]})'
         return title
 
+    def _calculate_range(self, current_range, df, factor=0.1):
+        if df.empty:
+            return current_range
+        else:
+            new_range = df.iloc[:,1].quantile([0.05, 0.995]).values
+            scaleval = new_range[1]-new_range[0]
+            new_range = [new_range[0]-scaleval*factor, new_range[1]+scaleval*factor]
+        if current_range is not None:
+            new_range = [min(current_range[0], new_range[0]), max(current_range[1], new_range[1])]
+        return new_range
+
     def create_plots(self, event):
         #df = self.display_table.selected_dataframe # buggy
         df = self.display_table.value.iloc[self.display_table.selection]
@@ -182,19 +194,24 @@ class StationInventoryExplorer(param.Parameterized):
         try:
             layout_map = {}
             title_map = {}
+            range_map = {}
             for i, r in df.iterrows():
                 for repo_level in self.repo_level:
                     crv = self.create_curve(r, repo_level)
                     unit = r['unit']
                     if unit not in layout_map:
                         layout_map[unit] = []
-                        title_map[unit] = [repo_level, r['param'], r['station_id'], r['agency']]
+                        title_map[unit] = [repo_level, r['param'], r['station_id'], r['agency'], r['subloc']]
+                        range_map[unit] = None
                     layout_map[unit].append(crv)
+                    if self.sensible_range_yaxis:
+                        range_map[unit] = self._calculate_range(range_map[unit], crv.data)
                     self._append_to_title_map(title_map, r, repo_level)
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
             else:
                 return hv.Layout([hv.Overlay(layout_map[k]).opts(show_legend=self.show_legend, legend_position=self.legend_position,
+                                                                 ylim=tuple(range_map[k]) if range_map[k] is not None else (None, None),
                                                                  title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
@@ -207,6 +224,7 @@ class StationInventoryExplorer(param.Parameterized):
         param = r['param']
         unit = r['unit']
         station_id = r['station_id']
+        subloc = r["subloc"] if len(r['subloc']) == 0 else f'/{r["subloc"]}'
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r, repo_level)
@@ -218,8 +236,8 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 if len(df) > 0:
                     df['value'] = godin(df['value'])
-        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}/{param}')
-        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
+        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}{subloc}/{param}')
+        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def get_data_for(self, r, repo_level):
         filename = r['filename']
