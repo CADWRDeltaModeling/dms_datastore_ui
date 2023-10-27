@@ -198,6 +198,7 @@ class StationInventoryExplorer(param.Parameterized):
             for i, r in df.iterrows():
                 for repo_level in self.repo_level:
                     crv = self.create_curve(r, repo_level)
+                    print(crv)
                     unit = r['unit']
                     if unit not in layout_map:
                         layout_map[unit] = []
