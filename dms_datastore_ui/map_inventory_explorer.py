@@ -341,11 +341,11 @@ class StationInventoryExplorer(param.Parameterized):
         control_widgets = pn.Row(
             pn.Column(
                     pn.Param(self.param.time_window, widgets={"time_window": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d'}}),
-                    self.param.repo_level, self.param.parameter_type,
-                    self.param.sensible_range_yaxis),
+                    self.param.repo_level, self.param.parameter_type),
             pn.Column(self.param.apply_filter, self.param.filter_type,
                       self.param.show_legend, self.param.legend_position,
                       self.param.map_color_category, self.param.use_symbols_for_params,
+                      self.param.sensible_range_yaxis,
                       self.param.search_text)
         )
         map_tooltip = pn.widgets.TooltipIcon(value='Map of stations. Click on a station to see data available in the table. See <a href="https://docs.bokeh.org/en/latest/docs/user_guide/interaction/tools.html">Bokeh Tools</a> for toolbar operation')
