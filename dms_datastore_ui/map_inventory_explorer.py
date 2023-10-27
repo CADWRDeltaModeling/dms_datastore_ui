@@ -358,12 +358,23 @@ class StationInventoryExplorer(param.Parameterized):
         # Add disclaimer about data hosted here
         disclaimer_text = """
         ## Disclaimer
-        The data hosted here is not official data. It is provided as a convenience to the public.
+
+        The data here is not the original data as provided by the agencies. The original data should be obtained from the agencies.
+
+        The data presented here is an aggregation of data from various sources. The various sources are listed in the inventory file as agency and agency_id_dbase.
+
+        The data here has been modified and corrected as needed by the Delta Modeling Section for use in the Delta Modeling Section's models and analysis.
         """
         #
         template = pn.template.MaterialTemplate(title='DMS Datastore',sidebar=[sidebar_view],
                                                 sidebar_width=650, header_color='blue', logo='https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png')
         template.modal.append(disclaimer_text)
+        # Adding about button
+        about_btn = pn.widgets.Button(name="About this Site", button_type="primary", icon="info-circle")
+        def about_callback(event):
+            template.open_modal()
+        about_btn.on_click(about_callback)
+        template.sidebar.append(about_btn)
         # Append a layout to the main area, to demonstrate the list-like API
         template.main.append(main_view)
         return template
