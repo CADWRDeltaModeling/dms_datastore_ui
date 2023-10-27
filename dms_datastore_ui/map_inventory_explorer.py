@@ -340,7 +340,7 @@ class StationInventoryExplorer(param.Parameterized):
     def create_view(self):
         control_widgets = pn.Row(
             pn.Column(
-                    pn.Param(self.param.time_window, widgets={"time_window": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d'}}),
+                    pn.Param(self.param.time_window, widgets={"time_window": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d %H:%M'}}),
                     self.param.repo_level, self.param.parameter_type),
             pn.Column(self.param.apply_filter, self.param.filter_type,
                       self.param.show_legend, self.param.legend_position,
