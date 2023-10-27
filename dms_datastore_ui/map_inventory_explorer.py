@@ -198,7 +198,6 @@ class StationInventoryExplorer(param.Parameterized):
             for i, r in df.iterrows():
                 for repo_level in self.repo_level:
                     crv = self.create_curve(r, repo_level)
-                    print(crv)
                     unit = r['unit']
                     if unit not in layout_map:
                         layout_map[unit] = []
@@ -213,7 +212,7 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 return hv.Layout([hv.Overlay(layout_map[k]).opts(show_legend=self.show_legend, legend_position=self.legend_position,
                                                                  ylim=tuple(range_map[k]) if range_map[k] is not None else (None, None),
-                                                                 title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(shared_axes=False)
+                                                                 title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(axiswise=True)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
@@ -237,7 +236,7 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 if len(df) > 0:
                     df['value'] = godin(df['value'])
-        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}{subloc}/{param}')
+        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}{subloc}/{param}').redim(value=f'{param}({unit})')
         return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def get_data_for(self, r, repo_level):
