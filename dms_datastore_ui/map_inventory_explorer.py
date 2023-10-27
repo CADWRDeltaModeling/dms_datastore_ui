@@ -88,6 +88,8 @@ class StationInventoryExplorer(param.Parameterized):
     map_color_category = param.Selector(objects=['param', 'agency'  ], default='param', doc='Color by parameter or agency')
     use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters. If not selected, all parameters will be shown as circles')
     search_text = param.String(default='', doc='Search text to filter stations')
+    show_legend = param.Boolean(default=True, doc='Show legend')
+    legend_position = param.Selector(objects=['top_right', 'top_left', 'bottom_right', 'bottom_left'], default='top_right', doc='Legend position')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -157,7 +159,6 @@ class StationInventoryExplorer(param.Parameterized):
             unit = r['unit']
             station_id = r['station_id']
             agency = r['agency']
-            #agency_id_dbase = r['agency_id_dbase']
             dfdata.to_csv(f'saved_{agency}_{station_id}_{param}.csv')
 
     def _append_to_title_map(self, title_map, r, repo_level):
@@ -193,7 +194,8 @@ class StationInventoryExplorer(param.Parameterized):
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
             else:
-                return hv.Layout([hv.Overlay(layout_map[k]).opts(legend_position='right', title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(shared_axes=False)
+                return hv.Layout([hv.Overlay(layout_map[k]).opts(show_legend=self.show_legend, legend_position=self.legend_position,
+                                                                 title=self._create_title(title_map[k])) for k in layout_map]).cols(1).opts(shared_axes=False)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)
@@ -216,8 +218,8 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 if len(df) > 0:
                     df['value'] = godin(df['value'])
-        crv = hv.Curve(df[['value']]).redim(value=f'{repo_level}/{station_id}/{param}', datetime='Time')
-        return crv.opts(ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
+        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}/{param}')
+        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def get_data_for(self, r, repo_level):
         filename = r['filename']
@@ -323,6 +325,7 @@ class StationInventoryExplorer(param.Parameterized):
                 pn.Param(self.param.time_window, widgets={"time_window": pn.widgets.DatetimeRangePicker}),
                         self.param.repo_level, self.param.parameter_type),
             pn.Column(self.param.apply_filter, self.param.filter_type,
+                      self.param.show_legend, self.param.legend_position,
                       self.param.map_color_category, self.param.use_symbols_for_params,
                       self.param.search_text)
         )
