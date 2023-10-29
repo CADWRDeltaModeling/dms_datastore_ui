@@ -368,8 +368,8 @@ class StationInventoryExplorer(param.Parameterized):
                                                            button_type='primary', icon='file-download', embed=False)
             gspec = pn.GridSpec(sizing_mode='stretch_both')#,
             gspec[0,:3] = pn.Row(self.plot_button, self.download_button, sizing_mode='stretch_height')
-            gspec[1:5,0:10] = self.display_table
-            gspec[5:15,0:10] = self.plot_panel
+            gspec[1:5,0:10] = pn.Row(self.display_table)
+            gspec[5:15,0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(gspec) # fails with object of type 'GridSpec' has no len()
         else:
             self.display_table.value = dfs
