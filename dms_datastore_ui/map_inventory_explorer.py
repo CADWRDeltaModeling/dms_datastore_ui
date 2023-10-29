@@ -25,6 +25,62 @@ import param
 #
 from vtools.functions.filter import godin, cosine_lanczos
 
+def uniform_unit_for(param):
+    if param == 'elev':
+        return 'feet'
+    elif param == 'flow':
+        return 'ft^3/s'
+    elif param == 'ec':
+        return 'microS/cm'
+    elif param == 'temp':
+        return 'deg_c'
+    elif param == 'do':
+        return 'mg/l'
+    elif param == 'ssc':
+        return 'mg/l'
+    elif param == 'turbidity':
+        return 'NTU'
+    elif param == 'ph':
+        return 'pH'
+    elif param == 'velocity':
+        return 'ft/s'
+    elif param == 'cla':
+        return 'ug/l'
+    else:
+        return 'std unit'
+
+def to_uniform_units(df, param, unit):
+    """
+    elev, feet, meters
+    flow, ft^3/s
+    ec, uS/cm, microS/cm
+    temp, deg_f, deg_c
+    do, mg/l
+    ssc, mg/l
+    turbidity, FNU, NTU
+    ph, pH, std unit
+    velocity, ft/s
+    cla, ug/l
+    """
+    if param == 'elev':
+        if unit == 'meters':
+            df['value'] = df['value']*3.28084
+            unit = 'feet'
+    elif param == 'ec':
+        if unit == 'uS/cm':
+            unit = 'microS/cm'
+    elif param == 'temp':
+        if unit == 'deg_f':
+            df['value'] = (df['value']-32)*5/9
+            unit = 'deg_c'
+    elif param == 'turbidity':
+        if unit == 'FNU':
+            unit = 'NTU'
+    elif param == 'ph':
+        if unit == 'std unit':
+            unit = 'pH'
+    return df, unit
+
 # this should be a util function
 def find_lastest_fname(pattern, dir='.'):
     d = Path(dir)
@@ -91,6 +147,7 @@ class StationInventoryExplorer(param.Parameterized):
     show_legend = param.Boolean(default=True, doc='Show legend')
     legend_position = param.Selector(objects=['top_right', 'top_left', 'bottom_right', 'bottom_left'], default='top_right', doc='Legend position')
     sensible_range_yaxis = param.Boolean(default=False, doc='Sensible range (1st and 99th percentile) or auto range for y axis')
+    convert_units = param.Boolean(default=True, doc='Convert units to uniform units')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
@@ -162,15 +219,15 @@ class StationInventoryExplorer(param.Parameterized):
             agency = r['agency']
             dfdata.to_csv(f'saved_{agency}_{station_id}_{param}.csv')
 
-    def _append_to_title_map(self, title_map, r, repo_level):
-        value = title_map[r['unit']]
+    def _append_to_title_map(self, title_map, unit, r, repo_level):
+        value = title_map[unit]
         if repo_level not in value[0]:
             value[0] += f',{repo_level}'
         if r['station_id'] not in value[2]:
             value[2] += f',{r["station_id"]}'
         if r['agency'] not in value[3]:
             value[3] += f',{r["agency"]}'
-        title_map[r['unit']] = value
+        title_map[unit] = value
 
     def _create_title(self, v):
         title = f'{v[1]} @ {v[2]} ({v[3]}::{v[0]})'
@@ -199,6 +256,8 @@ class StationInventoryExplorer(param.Parameterized):
                 for repo_level in self.repo_level:
                     crv = self.create_curve(r, repo_level)
                     unit = r['unit']
+                    if self.convert_units:
+                        unit = uniform_unit_for(r['param'])
                     if unit not in layout_map:
                         layout_map[unit] = []
                         title_map[unit] = [repo_level, r['param'], r['station_id'], r['agency'], r['subloc']]
@@ -206,7 +265,7 @@ class StationInventoryExplorer(param.Parameterized):
                     layout_map[unit].append(crv)
                     if self.sensible_range_yaxis:
                         range_map[unit] = self._calculate_range(range_map[unit], crv.data)
-                    self._append_to_title_map(title_map, r, repo_level)
+                    self._append_to_title_map(title_map, unit, r, repo_level)
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
             else:
@@ -228,6 +287,8 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r, repo_level)
+        if self.convert_units:
+            df, unit = to_uniform_units(df, param, unit)
         if self.apply_filter:
             df = df.interpolate(limit_direction='both', limit=10)
             if self.filter_type == 'cosine_lanczos':
@@ -340,7 +401,7 @@ class StationInventoryExplorer(param.Parameterized):
             pn.Column(self.param.apply_filter, self.param.filter_type,
                       self.param.show_legend, self.param.legend_position,
                       self.param.map_color_category, self.param.use_symbols_for_params,
-                      self.param.sensible_range_yaxis,
+                      self.param.sensible_range_yaxis, self.param.convert_units,
                       self.param.search_text)
         )
         map_tooltip = pn.widgets.TooltipIcon(value='Map of stations. Click on a station to see data available in the table. See <a href="https://docs.bokeh.org/en/latest/docs/user_guide/interaction/tools.html">Bokeh Tools</a> for toolbar operation')
