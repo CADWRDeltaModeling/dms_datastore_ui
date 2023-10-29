@@ -236,16 +236,12 @@ class StationInventoryExplorer(param.Parameterized):
             else:
                 if len(df) > 0:
                     df['value'] = godin(df['value'])
-        crv = hv.Curve(df[['value']], label=f'{repo_level}/{station_id}{subloc}/{param}').redim(value=f'{param}({unit})')
+        crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
+        crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
         return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def get_data_for(self, r, repo_level):
         filename = r['filename']
-        param = r['param']
-        unit = r['unit']
-        station_id = r['station_id']
-        agency = r['agency']
-        agency_id_dbase = r['agency_id_dbase']
         try:
             df = get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
         except Exception as e:
@@ -303,8 +299,7 @@ class StationInventoryExplorer(param.Parameterized):
             column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '8%', 'lon': '8%', 'name': '25%',
                                 'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '7%', 'unit': '8%'}
             self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map, show_index=False)
-            self.plot_button = pn.widgets.Button(name="Plot", button_type="primary", icon='chart-line',
-                                                 description='Plots selected rows from the data table. Select rows and click on button. Multiple rows can be selected using ctrl+click')
+            self.plot_button = pn.widgets.Button(name="Plot", button_type="primary", icon='chart-line')
             self.plot_button.on_click(self.update_plots)
             self.plot_panel = pn.panel(hv.Div('<h3>Select rows from table and click on button</h3>'))
             # add a button to trigger the save function
@@ -312,8 +307,8 @@ class StationInventoryExplorer(param.Parameterized):
                                                            button_type='primary', icon='file-download', embed=False)
             gspec = pn.GridSpec(sizing_mode='stretch_both')#,
             gspec[0,:3] = pn.Row(self.plot_button, self.download_button, sizing_mode='stretch_height')
-            gspec[1:3,0:10] = self.display_table
-            gspec[3:10,0:10] = self.plot_panel
+            gspec[1:5,0:10] = self.display_table
+            gspec[5:15,0:10] = self.plot_panel
             self.plots_panel = pn.Row(gspec) # fails with object of type 'GridSpec' has no len()
         else:
             self.display_table.value = dfs
