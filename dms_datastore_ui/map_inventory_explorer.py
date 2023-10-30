@@ -133,7 +133,7 @@ class StationInventoryExplorer(param.Parameterized):
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
     time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()), doc="Time window for data. Default is last 10 days")
-    repo_level = param.ListSelector(objects=['formatted_1yr', 'screened'], default=['formatted_1yr'],
+    repo_level = param.ListSelector(objects=['formatted_1yr', 'formatted', 'screened'], default=['formatted'],
                                 doc='repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)')
     parameter_type = param.ListSelector(objects=['all'],
                                     default=['all'],
@@ -154,6 +154,13 @@ class StationInventoryExplorer(param.Parameterized):
         self.dir = dir
         self.inventory_file, mtime = find_lastest_fname(
             'inventory*.csv', self.dir)
+        # check that repo_levels are valid and set default to first valid
+        valid_repo_levels = []
+        for repo_level in self.param.repo_level.objects:
+            if os.path.exists(os.path.join(self.dir, repo_level)):
+                valid_repo_levels.append(repo_level)
+        self.param.repo_level.objects = valid_repo_levels
+        self.param.repo_level.default=valid_repo_levels[0]
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file))
         # replace nan with empty string for column subloc
