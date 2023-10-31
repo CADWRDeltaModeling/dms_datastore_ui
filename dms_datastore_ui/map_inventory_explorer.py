@@ -1,8 +1,3 @@
-#diskcache to speed it up needed
-
-#pip install diskcache
-#pip install -e ../
-
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -22,6 +17,10 @@ import panel as pn
 pn.extension('tabulator')
 pn.extension(notifications=True)
 import param
+#!pip install diskcache
+import diskcache
+import dms_datastore
+from dms_datastore.read_ts import read_ts
 #
 from vtools.functions.filter import godin, cosine_lanczos
 
@@ -92,16 +91,6 @@ def find_lastest_fname(pattern, dir='.'):
             fname = f.absolute()
     return fname, mtime
 
-#!pip install diskcache
-import diskcache
-cache = diskcache.Cache('./cache', size_limit=1e11)
-import dms_datastore
-from dms_datastore.read_ts import read_ts
-
-@cache.memoize()
-def get_station_data_for_filename(filename, directory):
-    return read_ts(os.path.join(directory,filename))
-
 # from stackoverflow.com https://stackoverflow.com/questions/6086976/how-to-get-a-complete-exception-stack-trace-in-python
 def full_stack():
     import traceback, sys
@@ -115,6 +104,86 @@ def full_stack():
     if exc is not None:
          stackstr += '  ' + traceback.format_exc().lstrip(trc)
     return stackstr
+
+
+
+class StationDatastore(param.Parameterized):
+    # define a class to hold the station inventory and retrieve data. Move the caching code here
+    repo_level = param.ListSelector(objects=['formatted_1yr', 'formatted', 'screened'], default=['formatted'],
+                        doc='repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)')
+    parameter_type = param.ListSelector(objects=['all'],
+                                    default=['all'],
+                                    doc='parameter type of data, e.g. flow, elev, temp, etc. You can select multiple parameters (ctrl+click) or all'
+                                    )
+    apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
+    filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos', doc='Filter type is cosine lanczos with a 40 hour cutoff or godin')
+    convert_units = param.Boolean(default=True, doc='Convert units to uniform units')
+    caching = param.Boolean(default=True, doc='Use caching')
+
+    def __init__(self, dir, **kwargs):
+        super().__init__(**kwargs)
+        self.dir = os.path.normpath(dir)
+        self.cache = diskcache.Cache('cache_'+self.last_part_path(self.dir), size_limit=1e11)
+        self.caching_read_ts = self.cache.memoize()(read_ts)
+        self.inventory_file, mtime = find_lastest_fname('inventory*.csv', self.dir)
+        # check that repo_levels are valid and set default to first valid
+        valid_repo_levels = []
+        for repo_level in self.param.repo_level.objects:
+            if os.path.exists(os.path.join(self.dir, repo_level)):
+                valid_repo_levels.append(repo_level)
+        self.param.repo_level.objects = valid_repo_levels
+        self.param.repo_level.default=valid_repo_levels[0]
+        self.df_dataset_inventory = pd.read_csv(
+            os.path.join(self.dir, self.inventory_file))
+        # replace nan with empty string for column subloc
+        self.df_dataset_inventory['subloc'] = self.df_dataset_inventory['subloc'].fillna('')
+        self.unique_params = self.df_dataset_inventory['param'].unique()
+        self.param.parameter_type.objects = ['all'] +  list(self.unique_params)
+        group_cols = ['station_id', 'subloc', 'name', 'unit', 'param',
+                      'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
+        self.df_station_inventory = self.df_dataset_inventory.groupby(
+            group_cols).count().reset_index()[group_cols]
+
+
+    def last_part_path(self, dir):
+        return os.path.basename(os.path.normpath(dir))
+
+    def get_data(self, repo_level, filename):
+        if self.caching:
+            return self.caching_read_ts(os.path.join(self.dir, repo_level,filename))
+        else:
+            return read_ts(os.path.join(self.dir, repo_level, filename))
+
+    def cache(self, repo_level):
+        # get unique filenames
+        if not self.caching:
+            raise Exception('Caching is not enabled')
+        filenames = self.df_dataset_inventory['filename'].unique()
+        print('Caching: ', len(filenames), ' files')
+        for i, filename in enumerate(filenames):
+            print(f'Caching {i} ::{filename}')
+            try:
+                self.get_data(os.path.join(repo_level, filename), self.dir)
+            except Exception as e:
+                print(e)
+                print('Skipping', filename, 'due to error')
+
+    def get_uniform_units_data(self, df, param, unit):
+        if self.convert_units:
+            df, unit = to_uniform_units(df, param, unit)
+        return df, unit
+
+    def get_filtered_data(self, df):
+        if self.apply_filter:
+            df = df.interpolate(limit_direction='both', limit=10)
+            if self.filter_type == 'cosine_lanczos':
+                if len(df) > 0:
+                    df['value'] = cosine_lanczos(df['value'], '40H')
+            else:
+                if len(df) > 0:
+                    df['value'] = godin(df['value'])
+        return df
+
 
 from bokeh.models import HoverTool
 from bokeh.core.enums import MarkerType
@@ -133,44 +202,16 @@ class StationInventoryExplorer(param.Parameterized):
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
     time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()), doc="Time window for data. Default is last 10 days")
-    repo_level = param.ListSelector(objects=['formatted_1yr', 'formatted', 'screened'], default=['formatted'],
-                                doc='repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)')
-    parameter_type = param.ListSelector(objects=['all'],
-                                    default=['all'],
-                                    doc='parameter type of data, e.g. flow, elev, temp, etc. You can select multiple parameters (ctrl+click) or all'
-                                    )
-    apply_filter = param.Boolean(default=False, doc='Apply tidal filter to data')
-    filter_type = param.Selector(objects=['cosine_lanczos', 'godin'], default='cosine_lanczos', doc='Filter type is cosine lanczos with a 40 hour cutoff or godin')
     map_color_category = param.Selector(objects=['param', 'agency'  ], default='param', doc='Color by parameter or agency')
     use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters. If not selected, all parameters will be shown as circles')
     search_text = param.String(default='', doc='Search text to filter stations')
     show_legend = param.Boolean(default=True, doc='Show legend')
     legend_position = param.Selector(objects=['top_right', 'top_left', 'bottom_right', 'bottom_left'], default='top_right', doc='Legend position')
     sensible_range_yaxis = param.Boolean(default=False, doc='Sensible range (1st and 99th percentile) or auto range for y axis')
-    convert_units = param.Boolean(default=True, doc='Convert units to uniform units')
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
-        self.dir = dir
-        self.inventory_file, mtime = find_lastest_fname(
-            'inventory*.csv', self.dir)
-        # check that repo_levels are valid and set default to first valid
-        valid_repo_levels = []
-        for repo_level in self.param.repo_level.objects:
-            if os.path.exists(os.path.join(self.dir, repo_level)):
-                valid_repo_levels.append(repo_level)
-        self.param.repo_level.objects = valid_repo_levels
-        self.param.repo_level.default=valid_repo_levels[0]
-        self.df_dataset_inventory = pd.read_csv(
-            os.path.join(self.dir, self.inventory_file))
-        # replace nan with empty string for column subloc
-        self.df_dataset_inventory['subloc'] = self.df_dataset_inventory['subloc'].fillna('')
-        self.unique_params = self.df_dataset_inventory['param'].unique()
-        self.param.parameter_type.objects = ['all'] +  list(self.unique_params)
-        group_cols = ['station_id', 'subloc', 'name', 'unit', 'param',
-                      'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
-        self.df_station_inventory = self.df_dataset_inventory.groupby(
-            group_cols).count().reset_index()[group_cols]
+        self.station_datastore = StationDatastore(dir)
         self.tmap = gv.tile_sources.CartoLight
         tooltips = [
             ('Station ID', '@station_id'),
@@ -182,7 +223,7 @@ class StationInventoryExplorer(param.Parameterized):
             ('Unit', '@unit')
         ]
         hover = HoverTool(tooltips=tooltips)
-        self.current_station_inventory = self.df_station_inventory
+        self.current_station_inventory = self.station_datastore.df_station_inventory
         self.map_station_inventory = gv.Points(self.current_station_inventory, kdims=['lon', 'lat']
                                               ).opts(size=6, color=dim(self.map_color_category), cmap='Category10',
                                                      #marker=dim('param').categorize(param_to_marker_map),
@@ -205,7 +246,7 @@ class StationInventoryExplorer(param.Parameterized):
         if self.use_symbols_for_params:
             return param_to_marker_map
         else:
-            return {p: 'circle' for p in self.unique_params}
+            return {p: 'circle' for p in self.station_datastore.unique_params}
 
     @param.depends('search_text', watch=True)
     def do_search(self):
@@ -217,7 +258,7 @@ class StationInventoryExplorer(param.Parameterized):
 
     def save_dataframe(self, event):
         df = self.display_table.value.iloc[self.display_table.selection]
-        df = df.merge(self.df_dataset_inventory)
+        df = df.merge(self.station_datastore.df_dataset_inventory)
         for i, r in df.iterrows():
             dfdata = self.get_data_for(r)
             param = r['param']
@@ -254,16 +295,16 @@ class StationInventoryExplorer(param.Parameterized):
     def create_plots(self, event):
         #df = self.display_table.selected_dataframe # buggy
         df = self.display_table.value.iloc[self.display_table.selection]
-        df = df.merge(self.df_dataset_inventory)
+        df = df.merge(self.station_datastore.df_dataset_inventory)
         try:
             layout_map = {}
             title_map = {}
             range_map = {}
             for i, r in df.iterrows():
-                for repo_level in self.repo_level:
+                for repo_level in self.station_datastore.repo_level:
                     crv = self.create_curve(r, repo_level)
                     unit = r['unit']
-                    if self.convert_units:
+                    if self.station_datastore.convert_units:
                         unit = uniform_unit_for(r['param'])
                     if unit not in layout_map:
                         layout_map[unit] = []
@@ -294,16 +335,8 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for(r, repo_level)
-        if self.convert_units:
-            df, unit = to_uniform_units(df, param, unit)
-        if self.apply_filter:
-            df = df.interpolate(limit_direction='both', limit=10)
-            if self.filter_type == 'cosine_lanczos':
-                if len(df) > 0:
-                    df['value'] = cosine_lanczos(df['value'], '40H')
-            else:
-                if len(df) > 0:
-                    df['value'] = godin(df['value'])
+        df, unit = self.station_datastore.get_uniform_units_data(df, param, unit)
+        df = self.station_datastore.get_filtered_data(df)
         crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
         crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
         return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
@@ -311,7 +344,7 @@ class StationInventoryExplorer(param.Parameterized):
     def get_data_for(self, r, repo_level):
         filename = r['filename']
         try:
-            df = get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
+            df = self.station_datastore.get_data(repo_level, filename)
         except Exception as e:
             print(e)
             pn.state.notifications.error(f'Error while fetching data for {repo_level}/{filename}: {e}')
@@ -321,15 +354,8 @@ class StationInventoryExplorer(param.Parameterized):
 
     def cache(self, repo_level):
         # get unique filenames
-        filenames = self.df_dataset_inventory['filename'].unique()
-        print('Caching: ', len(filenames), ' files')
-        for i, filename in enumerate(filenames):
-            print(f'Caching {i} ::{filename}')
-            try:
-                get_station_data_for_filename(os.path.join(repo_level, filename), self.dir)
-            except Exception as e:
-                print(e)
-                print('Skipping', filename, 'due to error')
+        self.station_datastore.caching = True
+        self.station_datastore.cache(repo_level)
 
     def update_plots(self, event):
         self.plot_panel.loading = True
@@ -340,11 +366,11 @@ class StationInventoryExplorer(param.Parameterized):
         self.download_button.loading = True
         try:
             df = self.display_table.value.iloc[self.display_table.selection]
-            df = df.merge(self.df_dataset_inventory)
+            df = df.merge(self.station_datastore.df_dataset_inventory)
             dflist = []
             for i, r in df.iterrows():
                 for repo_level in self.repo_level:
-                    dfdata = self.get_data_for(r, repo_level)
+                    dfdata = self.station_datastore.get_data(r['filename'], repo_level)
                     param = r['param']
                     unit = r['unit']
                     subloc = r['subloc']
@@ -384,9 +410,9 @@ class StationInventoryExplorer(param.Parameterized):
 
     def get_map_of_stations(self, vartype, color_category, symbol_category):
         if len(vartype)==1 and vartype[0] == 'all':
-            dfs = self.df_station_inventory
+            dfs = self.station_datastore.df_station_inventory
         else:
-            dfs = self.df_station_inventory[self.df_station_inventory['param'].isin(vartype)]
+            dfs = self.station_datastore.df_station_inventory[self.station_datastore.df_station_inventory['param'].isin(vartype)]
         self.current_station_inventory = dfs
         self.map_station_inventory.data = self.current_station_inventory
         return self.tmap*self.map_station_inventory.opts(color=dim(color_category), marker=dim('param').categorize(self.get_param_to_marker_map()))
@@ -404,16 +430,16 @@ class StationInventoryExplorer(param.Parameterized):
         control_widgets = pn.Row(
             pn.Column(
                     pn.Param(self.param.time_window, widgets={"time_window": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d %H:%M'}}),
-                    self.param.repo_level, self.param.parameter_type),
-            pn.Column(self.param.apply_filter, self.param.filter_type,
+                    self.station_datastore.param.repo_level, self.station_datastore.param.parameter_type),
+            pn.Column(self.station_datastore.param.apply_filter, self.station_datastore.param.filter_type,
                       self.param.show_legend, self.param.legend_position,
                       self.param.map_color_category, self.param.use_symbols_for_params,
-                      self.param.sensible_range_yaxis, self.param.convert_units,
+                      self.param.sensible_range_yaxis, self.station_datastore.param.convert_units,
                       self.param.search_text)
         )
         map_tooltip = pn.widgets.TooltipIcon(value='Map of stations. Click on a station to see data available in the table. See <a href="https://docs.bokeh.org/en/latest/docs/user_guide/interaction/tools.html">Bokeh Tools</a> for toolbar operation')
         map_display = pn.bind(self.get_map_of_stations,
-                                                  vartype=self.param.parameter_type,
+                                                  vartype=self.station_datastore.param.parameter_type,
                                                   color_category=self.param.map_color_category,
                                                   symbol_category=self.param.use_symbols_for_params)
         sidebar_view = pn.Column(control_widgets, pn.Column(pn.Row('Station Map',map_tooltip), map_display))
