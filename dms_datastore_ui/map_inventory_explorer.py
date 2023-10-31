@@ -125,7 +125,6 @@ class StationDatastore(param.Parameterized):
         self.dir = os.path.normpath(dir)
         self.cache = diskcache.Cache('cache_'+self.last_part_path(self.dir), size_limit=1e11)
         self.caching_read_ts = self.cache.memoize()(read_ts)
-        self.inventory_file, mtime = find_lastest_fname('inventory*.csv', self.dir)
         # check that repo_levels are valid and set default to first valid
         valid_repo_levels = []
         for repo_level in self.param.repo_level.objects:
@@ -133,6 +132,8 @@ class StationDatastore(param.Parameterized):
                 valid_repo_levels.append(repo_level)
         self.param.repo_level.objects = valid_repo_levels
         self.param.repo_level.default=valid_repo_levels[0]
+        # read inventory file for each repo level
+        self.inventory_file, mtime = find_lastest_fname(f'inventory*{self.repo_level}*.csv', self.dir)
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file))
         # replace nan with empty string for column subloc
@@ -143,7 +144,6 @@ class StationDatastore(param.Parameterized):
                       'min_year', 'max_year', 'agency', 'agency_id_dbase', 'lat', 'lon']
         self.df_station_inventory = self.df_dataset_inventory.groupby(
             group_cols).count().reset_index()[group_cols]
-
 
     def last_part_path(self, dir):
         return os.path.basename(os.path.normpath(dir))
