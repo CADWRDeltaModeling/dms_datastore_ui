@@ -150,7 +150,7 @@ class StationDatastore(param.Parameterized):
 
     def get_data(self, repo_level, filename):
         if self.caching:
-            return self.caching_read_ts(os.path.join(self.dir, repo_level,filename))
+            return self.caching_read_ts(os.path.join(self.dir, repo_level, filename))
         else:
             return read_ts(os.path.join(self.dir, repo_level, filename))
 
@@ -261,17 +261,6 @@ class StationInventoryExplorer(param.Parameterized):
         index = self.current_station_inventory.index[mask]
         self.station_select.event(index = list(index)) # this should trigger show_inventory
 
-    def save_dataframe(self, event):
-        df = self.display_table.value.iloc[self.display_table.selection]
-        df = df.merge(self.station_datastore.df_dataset_inventory)
-        for i, r in df.iterrows():
-            dfdata = self.get_data_for(r)
-            param = r['param']
-            unit = r['unit']
-            station_id = r['station_id']
-            agency = r['agency']
-            dfdata.to_csv(f'saved_{agency}_{station_id}_{param}.csv')
-
     def _append_to_title_map(self, title_map, unit, r, repo_level):
         value = title_map[unit]
         if repo_level not in value[0]:
@@ -331,23 +320,7 @@ class StationInventoryExplorer(param.Parameterized):
             pn.state.notifications.error(f'Error while fetching data for {e}')
             return hv.Div(f'<h3> Exception while fetching data </h3> <pre>{e}</pre>')
 
-    def create_curve(self, r, repo_level):
-        filename = r['filename']
-        param = r['param']
-        unit = r['unit']
-        station_id = r['station_id']
-        subloc = r["subloc"] if len(r['subloc']) == 0 else f'/{r["subloc"]}'
-        agency = r['agency']
-        agency_id_dbase = r['agency_id_dbase']
-        df = self.get_data_for(r, repo_level)
-        df, unit = self.station_datastore.get_uniform_units_data(df, param, unit)
-        df = self.station_datastore.get_filtered_data(df)
-        crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
-        crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
-        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
-
-    def get_data_for(self, r, repo_level):
-        filename = r['filename']
+    def get_data_for_time_range(self, repo_level, filename):
         try:
             df = self.station_datastore.get_data(repo_level, filename)
         except Exception as e:
@@ -356,6 +329,21 @@ class StationInventoryExplorer(param.Parameterized):
             df=pd.DataFrame(columns=['value'])
         df = df.loc[slice(*self.time_window), :]
         return df
+
+    def create_curve(self, r, repo_level):
+        filename = r['filename']
+        param = r['param']
+        unit = r['unit']
+        station_id = r['station_id']
+        subloc = r["subloc"] if len(r['subloc']) == 0 else f'/{r["subloc"]}'
+        agency = r['agency']
+        agency_id_dbase = r['agency_id_dbase']
+        df = self.get_data_for_time_range(repo_level, filename)
+        df, unit = self.station_datastore.get_uniform_units_data(df, param, unit)
+        df = self.station_datastore.get_filtered_data(df)
+        crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
+        crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
+        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
 
     def update_plots(self, event):
         self.plot_panel.loading = True
@@ -369,8 +357,8 @@ class StationInventoryExplorer(param.Parameterized):
             df = df.merge(self.station_datastore.df_dataset_inventory)
             dflist = []
             for i, r in df.iterrows():
-                for repo_level in self.repo_level:
-                    dfdata = self.station_datastore.get_data(r['filename'], repo_level)
+                for repo_level in self.station_datastore.repo_level:
+                    dfdata = self.get_data_for_time_range(repo_level, r['filename'])
                     param = r['param']
                     unit = r['unit']
                     subloc = r['subloc']
