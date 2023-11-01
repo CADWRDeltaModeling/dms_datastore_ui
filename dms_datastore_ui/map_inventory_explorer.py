@@ -154,7 +154,12 @@ class StationDatastore(param.Parameterized):
         else:
             return read_ts(os.path.join(self.dir, repo_level, filename))
 
-    def cache(self, repo_level):
+    def clear_cache(self):
+        if self.caching:
+            self.cache.clear()
+            print('Cache cleared')
+
+    def cache_repo_level(self, repo_level):
         # get unique filenames
         if not self.caching:
             raise Exception('Caching is not enabled')
@@ -352,11 +357,6 @@ class StationInventoryExplorer(param.Parameterized):
         df = df.loc[slice(*self.time_window), :]
         return df
 
-    def cache(self, repo_level):
-        # get unique filenames
-        self.station_datastore.caching = True
-        self.station_datastore.cache(repo_level)
-
     def update_plots(self, event):
         self.plot_panel.loading = True
         self.plot_panel.object = self.create_plots(event)
@@ -487,10 +487,10 @@ if __name__ == '__main__':
     if args.cache:
         # run caching
         print('Clearing cache')
-        cache.clear()
+        explorer.station_datastore.clear_cache()
         print('Caching data')
-        for repo_level in explorer.repo_level:
+        for repo_level in explorer.params.repo_level.objects:
             print('Caching ', repo_level)
-            explorer.cache(repo_level)
+            explorer.station_datastore.cache_repo_level(repo_level)
     else: # display ui
         explorer.create_view().show(title='Station Inventory Explorer')

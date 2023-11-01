@@ -6,8 +6,11 @@ if __name__ == '__main__':
     print('Directory is ', sys.argv[1])
     explorer = mie.StationInventoryExplorer(sys.argv[1])
     print(f'Caching Task executed at: {dt.datetime.now()}')
-    for repo_level in explorer.param.repo_level.objects:
+    print('Clearing cache')
+    explorer.station_datastore.clear_cache()
+    print('Caching data')
+    for repo_level in explorer.params.repo_level.objects:
         print(f'Cache level: {repo_level}')
-        explorer.cache(repo_level)
+        explorer.station_datastore.cache_repo_level(repo_level)
     print(f'Cache complete at: {dt.datetime.now()}')
 #
