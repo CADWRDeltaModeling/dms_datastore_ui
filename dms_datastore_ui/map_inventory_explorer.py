@@ -168,7 +168,7 @@ class StationDatastore(param.Parameterized):
         for i, filename in enumerate(filenames):
             print(f'Caching {i} ::{filename}')
             try:
-                self.get_data(os.path.join(repo_level, filename), self.dir)
+                self.get_data(repo_level, filename)
             except Exception as e:
                 print(e)
                 print('Skipping', filename, 'due to error')
@@ -392,7 +392,7 @@ class StationInventoryExplorer(param.Parameterized):
         if not hasattr(self, 'display_table'):
             column_width_map = {'index': '5%', 'station_id': '10%', 'subloc': '5%', 'lat': '8%', 'lon': '8%', 'name': '25%',
                                 'min_year': '5%', 'max_year':'5%', 'agency': '5%', 'agency_id_dbase': '5%', 'param': '7%', 'unit': '8%'}
-            self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map, show_index=False)
+            self.display_table = pn.widgets.Tabulator(dfs, disabled=True, widths=column_width_map, show_index=False, layout='fit_data_stretch')
             self.plot_button = pn.widgets.Button(name="Plot", button_type="primary", icon='chart-line')
             self.plot_button.on_click(self.update_plots)
             self.plot_panel = pn.panel(hv.Div('<h3>Select rows from table and click on button</h3>'))
