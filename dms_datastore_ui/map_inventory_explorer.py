@@ -426,6 +426,26 @@ class StationInventoryExplorer(param.Parameterized):
         col2 = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
+    def get_disclaimer_text(self):
+        # Add disclaimer about data hosted here
+        disclaimer_text = """
+        ## Disclaimer
+
+        The data here is not the original data as provided by the agencies. The original data should be obtained from the agencies.
+
+        The data presented here is an aggregation of data from various sources. The various sources are listed in the inventory file as agency and agency_id_dbase.
+
+        The data here has been modified and corrected as needed by the Delta Modeling Section for use in the Delta Modeling Section's models and analysis.
+        """
+        return disclaimer_text
+
+    def create_about_button(self, template):
+        about_btn = pn.widgets.Button(name="About this Site", button_type="primary", icon="info-circle")
+        def about_callback(event):
+            template.open_modal()
+        about_btn.on_click(about_callback)
+        #
+
     def create_view(self):
         control_widgets = pn.Row(
             pn.Column(
@@ -444,26 +464,11 @@ class StationInventoryExplorer(param.Parameterized):
                                                   symbol_category=self.param.use_symbols_for_params)
         sidebar_view = pn.Column(control_widgets, pn.Column(pn.Row('Station Map',map_tooltip), map_display))
         main_view = pn.Column(pn.bind(self.show_inventory, index=self.station_select.param.index))
-        # Add disclaimer about data hosted here
-        disclaimer_text = """
-        ## Disclaimer
-
-        The data here is not the original data as provided by the agencies. The original data should be obtained from the agencies.
-
-        The data presented here is an aggregation of data from various sources. The various sources are listed in the inventory file as agency and agency_id_dbase.
-
-        The data here has been modified and corrected as needed by the Delta Modeling Section for use in the Delta Modeling Section's models and analysis.
-        """
-        #
         template = pn.template.MaterialTemplate(title='DMS Datastore',sidebar=[sidebar_view],
                                                 sidebar_width=650, header_color='blue', logo='https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png')
-        template.modal.append(disclaimer_text)
+        template.modal.append(self.get_disclaimer_text())
         # Adding about button
-        about_btn = pn.widgets.Button(name="About this Site", button_type="primary", icon="info-circle")
-        def about_callback(event):
-            template.open_modal()
-        about_btn.on_click(about_callback)
-        template.sidebar.append(about_btn)
+        template.sidebar.append(self.create_about_button(template))
         # Append a layout to the main area, to demonstrate the list-like API
         template.main.append(main_view)
         return template
