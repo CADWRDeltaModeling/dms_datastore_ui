@@ -451,7 +451,7 @@ class StationInventoryExplorer(param.Parameterized):
         def about_callback(event):
             template.open_modal()
         about_btn.on_click(about_callback)
-        #
+        return about_btn
 
     def create_view(self):
         control_widgets = pn.Row(
