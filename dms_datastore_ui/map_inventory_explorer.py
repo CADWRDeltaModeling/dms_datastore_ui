@@ -235,7 +235,7 @@ class StationInventoryExplorer(param.Parameterized):
                                                      tools=[hover], height=800)
         self.map_station_inventory = self.map_station_inventory.opts(opts.Points(tools=['tap', hover, 'lasso_select', 'box_select'],
                                                                                  nonselection_alpha=0.3,  # nonselection_color='gray',
-                                                                                 size=8)
+                                                                                 size=10)
                                                                      ).opts(frame_width=500, active_tools=['wheel_zoom'])
 
         self.station_select = streams.Selection1D(source=self.map_station_inventory)#.Points.I)
