@@ -434,9 +434,15 @@ class StationInventoryExplorer(param.Parameterized):
         return pn.Row(col1, col2, sizing_mode='stretch_both')
 
     def get_disclaimer_text(self):
+        from ._version import get_versions
         # Add disclaimer about data hosted here
-        disclaimer_text = """
-        ## Disclaimer
+        # insert app version with date time of last commit and commit id
+        version_string = f"DMS Datastore UI: {get_versions()['version']} - 2023-11-06"
+        disclaimer_text = f"""
+        ## App version:
+        ### {version_string}
+
+        ## Data Disclaimer
 
         The data here is not the original data as provided by the agencies. The original data should be obtained from the agencies.
 
