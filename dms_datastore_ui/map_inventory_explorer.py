@@ -406,10 +406,10 @@ class StationInventoryExplorer(param.Parameterized):
             # add a button to trigger the save function
             self.download_button = pn.widgets.FileDownload(label='Download', callback=self.download_data, filename='dms_data.csv',
                                                            button_type='primary', icon='file-download', embed=False)
-            gspec = pn.GridSpec(sizing_mode='stretch_both')#,
-            gspec[0,:3] = pn.Row(self.plot_button, self.download_button, sizing_mode='stretch_height')
+            gspec = pn.GridStack(sizing_mode='stretch_both', allow_resize=True)#,
+            gspec[0,:3] = pn.Row(self.plot_button, self.download_button)
             gspec[1:5,0:10] = pn.Row(self.display_table)
-            gspec[5:15,0:10] = pn.Row(self.plot_panel)
+            gspec[6:15,0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(gspec) # fails with object of type 'GridSpec' has no len()
         else:
             self.display_table.value = dfs
