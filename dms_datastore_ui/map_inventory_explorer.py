@@ -206,7 +206,7 @@ class StationInventoryExplorer(param.Parameterized):
     Show station inventory on map and select to display data available
     Furthermore select the data rows and click on button to display plots for selected rows
     '''
-    time_window = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()), doc="Time window for data. Default is last 10 days")
+    time_range = param.CalendarDateRange(default=(datetime.now()- timedelta(days=10), datetime.now()), doc="Time window for data. Default is last 10 days")
     map_color_category = param.Selector(objects=['param', 'agency'  ], default='param', doc='Color by parameter or agency')
     use_symbols_for_params = param.Boolean(default=False, doc='Use symbols for parameters. If not selected, all parameters will be shown as circles')
     search_text = param.String(default='', doc='Search text to filter stations')
@@ -296,7 +296,7 @@ class StationInventoryExplorer(param.Parameterized):
             range_map = {}
             for i, r in df.iterrows():
                 for repo_level in self.station_datastore.repo_level:
-                    crv = self.create_curve(r, repo_level)
+                    crvs = self.create_curves(r, repo_level)
                     unit = r['unit']
                     if self.station_datastore.convert_units:
                         unit = uniform_unit_for(r['param'])
@@ -304,9 +304,10 @@ class StationInventoryExplorer(param.Parameterized):
                         layout_map[unit] = []
                         title_map[unit] = [repo_level, r['param'], r['station_id'], r['agency'], r['subloc']]
                         range_map[unit] = None
-                    layout_map[unit].append(crv)
+                    layout_map[unit].extend(crvs)
                     if self.sensible_range_yaxis:
-                        range_map[unit] = self._calculate_range(range_map[unit], crv.data)
+                        for crv in crvs:
+                            range_map[unit] = self._calculate_range(range_map[unit], crv.data)
                     self._append_to_title_map(title_map, unit, r, repo_level)
             if len(layout_map) == 0:
                 return hv.Div('<h3>Select rows from table and click on button</h3>')
@@ -327,10 +328,21 @@ class StationInventoryExplorer(param.Parameterized):
             print(e)
             pn.state.notifications.error(f'Error while fetching data for {repo_level}/{filename}: {e}')
             df=pd.DataFrame(columns=['value'])
-        df = df.loc[slice(*self.time_window), :]
+        df = df.loc[slice(*self.time_range), :]
         return df
 
-    def create_curve(self, r, repo_level):
+    def do_unit_and_filtering(self, df):
+        df, unit = self.station_datastore.get_uniform_units_data(df, param, unit)
+        df = self.station_datastore.get_filtered_data(df)
+        return df, unit
+
+    def do_create_crv(self, df, repo_level, param, unit, station_id, subloc, agency, agency_id_dbase):
+        crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
+        crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
+        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
+
+
+    def create_curves(self, r, repo_level):
         filename = r['filename']
         param = r['param']
         unit = r['unit']
@@ -339,11 +351,18 @@ class StationInventoryExplorer(param.Parameterized):
         agency = r['agency']
         agency_id_dbase = r['agency_id_dbase']
         df = self.get_data_for_time_range(repo_level, filename)
-        df, unit = self.station_datastore.get_uniform_units_data(df, param, unit)
-        df = self.station_datastore.get_filtered_data(df)
-        crvlabel = f'{repo_level}/{station_id}{subloc}/{param}'
-        crv = hv.Curve(df[['value']],label=crvlabel).redim(value=crvlabel)
-        return crv.opts(xlabel='Time', ylabel=f'{param}({unit})', title=f'{repo_level}/{station_id}{subloc}::{agency}/{agency_id_dbase}', responsive=True, active_tools=['wheel_zoom'], tools=['hover'])
+        # if df doesn't have value column # work around for issue https://github.com/CADWRDeltaModeling/dms_datastore/issues/15
+        if 'value' not in df.columns:
+            dflist = [df.loc[:,[c]].rename(columns={c: 'value'}) for c in df.columns]
+            sublocs = list(df.columns)
+        else:
+            dflist = [df]
+            sublocs = ['']
+        dflist, unit = zip(*[self.station_datastore.get_uniform_units_data(df, param, unit) for df in dflist])
+        dflist = [self.station_datastore.get_filtered_data(df) for df in dflist]
+        unit = list(unit)
+        return [self.do_create_crv(df, repo_level, param, unit, station_id, subloc, agency, agency_id_dbase) for df,subloc,unit in zip(dflist, sublocs, unit)]
+
 
     def update_plots(self, event):
         self.plot_panel.loading = True
@@ -406,7 +425,7 @@ class StationInventoryExplorer(param.Parameterized):
         return self.tmap*self.map_station_inventory.opts(color=dim(color_category), marker=dim('param').categorize(self.get_param_to_marker_map()))
 
     def create_maps_view(self):
-        control_widgets = pn.Param(self, widgets={"time_window": pn.widgets.DatetimeRangePicker})
+        control_widgets = pn.Param(self, widgets={"time_range": pn.widgets.DatetimeRangePicker})
         col1 = pn.Column(control_widgets, pn.bind(self.get_map_of_stations,
                                                   vartype=self.param.parameter_type,
                                                   color_category=self.param.map_color_category,
@@ -437,7 +456,7 @@ class StationInventoryExplorer(param.Parameterized):
     def create_view(self):
         control_widgets = pn.Row(
             pn.Column(
-                    pn.Param(self.param.time_window, widgets={"time_window": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d %H:%M'}}),
+                    pn.Param(self.param.time_range, widgets={"time_range": {'widget_type': pn.widgets.DatetimeRangeInput, 'format': '%Y-%m-%d %H:%M'}}),
                     self.station_datastore.param.repo_level, self.station_datastore.param.parameter_type),
             pn.Column(self.station_datastore.param.apply_filter, self.station_datastore.param.filter_type,
                       self.param.show_legend, self.param.legend_position,
