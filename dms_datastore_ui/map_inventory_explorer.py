@@ -440,7 +440,9 @@ class StationInventoryExplorer(param.Parameterized):
         sdf = df.loc[slice(*time_range), :]
         if sdf.empty:
             return pd.DataFrame(
-                columns=["value"], index=pd.date_range(*time_range, freq="D")
+                columns=["value"],
+                index=pd.date_range(*time_range, freq="D"),
+                dtype=float,
             )
         else:
             return sdf
@@ -453,7 +455,7 @@ class StationInventoryExplorer(param.Parameterized):
             pn.state.notifications.error(
                 f"Error while fetching data for {repo_level}/{filename}: {e}"
             )
-            df = pd.DataFrame(columns=["value"])
+            df = pd.DataFrame(columns=["value"], dtype=float)
         df = self._slice_df(df, self.time_range)
         return df
 
