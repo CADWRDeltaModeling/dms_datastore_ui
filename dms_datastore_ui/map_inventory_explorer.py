@@ -436,6 +436,15 @@ class StationInventoryExplorer(param.Parameterized):
             pn.state.notifications.error(f"Error while fetching data for {e}")
             return hv.Div(f"<h3> Exception while fetching data </h3> <pre>{e}</pre>")
 
+    def _slice_df(self, df, time_range):
+        sdf = df.loc[slice(*time_range), :]
+        if sdf.empty:
+            return pd.DataFrame(
+                columns=["value"], index=pd.date_range(*time_range, freq="D")
+            )
+        else:
+            return sdf
+
     def get_data_for_time_range(self, repo_level, filename):
         try:
             df = self.station_datastore.get_data(repo_level, filename)
@@ -445,7 +454,7 @@ class StationInventoryExplorer(param.Parameterized):
                 f"Error while fetching data for {repo_level}/{filename}: {e}"
             )
             df = pd.DataFrame(columns=["value"])
-        df = df.loc[slice(*self.time_range), :]
+        df = self._slice_df(df, self.time_range)
         return df
 
     def do_unit_and_filtering(self, df):
