@@ -19,7 +19,7 @@ gv.extension("bokeh")
 import panel as pn
 
 pn.extension("tabulator")
-pn.extension(notifications=True)
+pn.extension(notifications=True, sizing_model="stretch_both")
 import param
 
 #!pip install diskcache
@@ -545,18 +545,17 @@ class StationInventoryExplorer(param.Parameterized):
         # if attribute display_table is not set, create it
         if not hasattr(self, "display_table"):
             column_width_map = {
-                "index": "5%",
                 "station_id": "10%",
                 "subloc": "5%",
-                "lat": "9%",
-                "lon": "9%",
+                "lat": "10%",
+                "lon": "10%",
                 "name": "25%",
                 "min_year": "5%",
                 "max_year": "5%",
                 "agency": "5%",
                 "agency_id_dbase": "5%",
-                "param": "8%",
-                "unit": "8%",
+                "param": "10%",
+                "unit": "10%",
             }
             self.display_table = pn.widgets.Tabulator(
                 dfs,
@@ -584,7 +583,7 @@ class StationInventoryExplorer(param.Parameterized):
             gspec = pn.GridStack(
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
-            gspec[0, :3] = pn.Row(self.plot_button, self.download_button)
+            gspec[0, 0:2] = pn.Row(self.plot_button, self.download_button)
             gspec[1:5, 0:10] = pn.Row(self.display_table)
             gspec[6:15, 0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(
