@@ -20,6 +20,8 @@ import panel as pn
 
 pn.extension("tabulator")
 pn.extension(notifications=True, sizing_model="stretch_both")
+pn.extension(design="native")
+
 import param
 
 #!pip install diskcache
