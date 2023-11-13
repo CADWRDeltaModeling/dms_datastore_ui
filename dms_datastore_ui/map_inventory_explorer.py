@@ -18,9 +18,7 @@ import geoviews as gv
 gv.extension("bokeh")
 import panel as pn
 
-pn.extension("tabulator")
-pn.extension(notifications=True, sizing_model="stretch_both")
-pn.extension(design="native")
+pn.extension("tabulator", notifications=True, design="native")
 
 import param
 
@@ -453,10 +451,11 @@ class StationInventoryExplorer(param.Parameterized):
         try:
             df = self.station_datastore.get_data(repo_level, filename)
         except Exception as e:
-            print(e)
-            pn.state.notifications.error(
-                f"Error while fetching data for {repo_level}/{filename}: {e}"
-            )
+            print(full_stack())
+            if pn.state.notifications:
+                pn.state.notifications.error(
+                    f"Error while fetching data for {repo_level}/{filename}: {e}"
+                )
             df = pd.DataFrame(columns=["value"], dtype=float)
         df = self._slice_df(df, self.time_range)
         return df
