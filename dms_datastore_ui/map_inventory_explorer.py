@@ -532,6 +532,25 @@ class StationInventoryExplorer(param.Parameterized):
         self.plot_panel.object = self.create_plots(event)
         self.plot_panel.loading = False
 
+    def get_permalink(self):
+        # get the current url
+        url = pn.state.location.href
+        print(url)
+        # get the current state
+        urlparams = {'time_range': self.time_range}
+        urlparams['repo_level'] = self.station_datastore.repo_level
+        df = self.display_table.value.iloc[self.display_table.selection]
+        selections = df['station_id'].astype(str)+"|"+df['subloc'].astype(str)+"|"+df['param'].astype(str)
+        selections = selections.str.cat(sep=',')
+        urlparams['selections'] = selections
+        # create a permalink by converting urlparams to a string
+        urlparams = '&'.join([f'{k}={v}' for k,v in urlparams.items()])
+        import urllib.parse
+        url = url.split('?')[0] + '?' + urllib.parse.quote(urlparams)
+        print(url)
+        # return the permalink
+        return url
+
     def download_data(self):
         self.download_button.loading = True
         try:
@@ -598,10 +617,14 @@ class StationInventoryExplorer(param.Parameterized):
                 icon="file-download",
                 embed=False,
             )
+            self.permalink_button = pn.widgets.Button(
+                name="Permalink", button_type="primary", icon="link"
+            )
+            self.permalink_button.on_click(lambda event: pn.state.location(url=self.get_permalink()))
             gspec = pn.GridStack(
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
-            gspec[0, 0:2] = pn.Row(self.plot_button, self.download_button)
+            gspec[0, 0:5] = pn.Row(self.plot_button, self.download_button, self.permalink_button)
             gspec[1:5, 0:10] = pn.Row(self.display_table)
             gspec[6:15, 0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(
