@@ -660,7 +660,7 @@ class StationInventoryExplorer(param.Parameterized):
 
         # Add disclaimer about data hosted here
         # insert app version with date time of last commit and commit id
-        version_string = f"DMS Datastore UI: {get_versions()['version']} - 2023-11-06"
+        version_string = f"DMS Datastore UI: {get_versions()['version']}"
         disclaimer_text = f"""
         ## App version:
         ### {version_string}
