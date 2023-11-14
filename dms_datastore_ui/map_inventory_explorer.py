@@ -156,6 +156,7 @@ class StationDatastore(param.Parameterized):
         self.inventory_file, mtime = find_lastest_fname(
             f"inventory*{self.repo_level}*.csv", self.dir
         )
+        print("Using inventory file: ", self.inventory_file)
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file)
         )
@@ -183,6 +184,9 @@ class StationDatastore(param.Parameterized):
             .count()
             .reset_index()[group_cols]
         )
+        # calculate min (min year) and max of max_year
+        self.min_year = self.df_station_inventory["min_year"].min()
+        self.max_year = self.df_station_inventory["max_year"].max()
 
     def last_part_path(self, dir):
         return os.path.basename(os.path.normpath(dir))
@@ -282,10 +286,23 @@ class StationInventoryExplorer(param.Parameterized):
         default=False,
         doc="Sensible range (1st and 99th percentile) or auto range for y axis",
     )
+    year_range = param.Range(step=1, bounds=(2000, 2010), doc="Year range for data")
+    query = param.String(
+        default="",
+        doc='Query to filter stations. See <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.query.html">Pandas Query</a> for details. E.g. max_year <= 2023',
+    )
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
         self.station_datastore = StationDatastore(dir)
+        self.param.year_range.bounds = (
+            self.station_datastore.min_year,
+            self.station_datastore.max_year,
+        )
+        self.year_range = (
+            self.station_datastore.min_year,
+            self.station_datastore.max_year,
+        )
         self.tmap = gv.tile_sources.CartoLight
         tooltips = [
             ("Station ID", "@station_id"),
@@ -594,38 +611,26 @@ class StationInventoryExplorer(param.Parameterized):
             self.display_table.value = dfs
         return self.plots_panel
 
-    def get_map_of_stations(self, vartype, color_category, symbol_category):
+    def get_map_of_stations(self, vartype, color_category, symbol_category, query):
         if len(vartype) == 1 and vartype[0] == "all":
             dfs = self.station_datastore.df_station_inventory
         else:
             dfs = self.station_datastore.df_station_inventory[
                 self.station_datastore.df_station_inventory["param"].isin(vartype)
             ]
+        # limit the current station inventory to those rows whose min_year and max_year are within the year_range
+        # dfs = dfs.query(
+        #    f"min_year >= {self.year_range[0]} and max_year <= {self.year_range[1]}"
+        # )
+        query = query.strip()
+        if len(query) > 0:
+            dfs = dfs.query(query)
         self.current_station_inventory = dfs
         self.map_station_inventory.data = self.current_station_inventory
         return self.tmap * self.map_station_inventory.opts(
             color=dim(color_category),
             marker=dim("param").categorize(self.get_param_to_marker_map()),
         )
-
-    def create_maps_view(self):
-        control_widgets = pn.Param(
-            self, widgets={"time_range": pn.widgets.DatetimeRangePicker}
-        )
-        col1 = pn.Column(
-            control_widgets,
-            pn.bind(
-                self.get_map_of_stations,
-                vartype=self.param.parameter_type,
-                color_category=self.param.map_color_category,
-                symbol_category=self.param.use_symbols_for_params,
-            ),
-            width=600,
-        )
-        col2 = pn.Column(
-            pn.bind(self.show_inventory, index=self.station_select.param.index)
-        )
-        return pn.Row(col1, col2, sizing_mode="stretch_both")
 
     def get_disclaimer_text(self):
         from ._version import get_versions
@@ -671,15 +676,23 @@ class StationInventoryExplorer(param.Parameterized):
                     },
                 ),
                 self.station_datastore.param.repo_level,
-                self.station_datastore.param.parameter_type,
+                pn.WidgetBox(
+                    "Map Options",
+                    self.station_datastore.param.parameter_type,
+                    self.param.use_symbols_for_params,
+                    self.param.map_color_category,
+                    self.param.query,
+                ),
             ),
             pn.Column(
-                self.station_datastore.param.apply_filter,
-                self.station_datastore.param.filter_type,
-                self.param.show_legend,
-                self.param.legend_position,
-                self.param.map_color_category,
-                self.param.use_symbols_for_params,
+                pn.WidgetBox(
+                    self.station_datastore.param.apply_filter,
+                    self.station_datastore.param.filter_type,
+                ),
+                pn.WidgetBox(
+                    self.param.show_legend,
+                    self.param.legend_position,
+                ),
                 self.param.sensible_range_yaxis,
                 self.station_datastore.param.convert_units,
                 self.param.search_text,
@@ -693,6 +706,7 @@ class StationInventoryExplorer(param.Parameterized):
             vartype=self.station_datastore.param.parameter_type,
             color_category=self.param.map_color_category,
             symbol_category=self.param.use_symbols_for_params,
+            query=self.param.query,
         )
         sidebar_view = pn.Column(
             control_widgets, pn.Column(pn.Row("Station Map", map_tooltip), map_display)
@@ -708,10 +722,10 @@ class StationInventoryExplorer(param.Parameterized):
             logo="https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png",
         )
         template.modal.append(self.get_disclaimer_text())
-        # Adding about button
-        template.sidebar.append(self.create_about_button(template))
         # Append a layout to the main area, to demonstrate the list-like API
         template.main.append(main_view)
+        # Adding about button
+        control_widgets[1].append(self.create_about_button(template))
         return template
 
 
