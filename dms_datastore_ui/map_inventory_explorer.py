@@ -624,7 +624,7 @@ class StationInventoryExplorer(param.Parameterized):
             gspec = pn.GridStack(
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
-            gspec[0, 0:5] = pn.Row(self.plot_button, self.download_button, self.permalink_button)
+            gspec[0, 0:5] = pn.Row(self.plot_button, self.download_button)#, self.permalink_button)
             gspec[1:5, 0:10] = pn.Row(self.display_table)
             gspec[6:15, 0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(
@@ -689,6 +689,16 @@ class StationInventoryExplorer(param.Parameterized):
     def create_view(self):
         control_widgets = pn.Row(
             pn.Column(
+                pn.WidgetBox(
+                    "Map Options",
+                    self.station_datastore.param.parameter_type,
+                    self.param.use_symbols_for_params,
+                    self.param.map_color_category,
+                    self.param.query,
+                ),
+                self.param.search_text,
+            ),
+            pn.Column(
                 pn.Param(
                     self.param.time_range,
                     widgets={
@@ -700,15 +710,6 @@ class StationInventoryExplorer(param.Parameterized):
                 ),
                 self.station_datastore.param.repo_level,
                 pn.WidgetBox(
-                    "Map Options",
-                    self.station_datastore.param.parameter_type,
-                    self.param.use_symbols_for_params,
-                    self.param.map_color_category,
-                    self.param.query,
-                ),
-            ),
-            pn.Column(
-                pn.WidgetBox(
                     self.station_datastore.param.apply_filter,
                     self.station_datastore.param.filter_type,
                 ),
@@ -716,9 +717,8 @@ class StationInventoryExplorer(param.Parameterized):
                     self.param.show_legend,
                     self.param.legend_position,
                 ),
-                self.param.sensible_range_yaxis,
                 self.station_datastore.param.convert_units,
-                self.param.search_text,
+                self.param.sensible_range_yaxis,
             ),
         )
         map_tooltip = pn.widgets.TooltipIcon(
@@ -737,7 +737,7 @@ class StationInventoryExplorer(param.Parameterized):
         main_view = pn.Column(
             pn.bind(self.show_inventory, index=self.station_select.param.index)
         )
-        template = pn.template.MaterialTemplate(
+        template = pn.template.VanillaTemplate(
             title="DMS Datastore",
             sidebar=[sidebar_view],
             sidebar_width=650,
@@ -748,7 +748,7 @@ class StationInventoryExplorer(param.Parameterized):
         # Append a layout to the main area, to demonstrate the list-like API
         template.main.append(main_view)
         # Adding about button
-        control_widgets[1].append(self.create_about_button(template))
+        control_widgets[0].append(self.create_about_button(template))
         return template
 
 
