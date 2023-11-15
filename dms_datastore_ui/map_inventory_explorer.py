@@ -532,24 +532,68 @@ class StationInventoryExplorer(param.Parameterized):
         self.plot_panel.object = self.create_plots(event)
         self.plot_panel.loading = False
 
-    def get_permalink(self):
-        # get the current url
-        url = pn.state.location.href
-        print(url)
+    def permalink_callback(self, event):
+        if pn.state.location:
+            pn.state.location.update_query(**self.get_permalink_params())
+
+    def get_permalink_params(self):
         # get the current state
-        urlparams = {'time_range': self.time_range}
-        urlparams['repo_level'] = self.station_datastore.repo_level
+        urlparams = {}
+        sdate, edate = (r.isoformat().rsplit(":", 1)[0] for r in self.time_range)
+        urlparams["sdate"] = sdate
+        urlparams["edate"] = edate
+        urlparams["repo_level"] = self.station_datastore.repo_level
         df = self.display_table.value.iloc[self.display_table.selection]
-        selections = df['station_id'].astype(str)+"|"+df['subloc'].astype(str)+"|"+df['param'].astype(str)
-        selections = selections.str.cat(sep=',')
-        urlparams['selections'] = selections
-        # create a permalink by converting urlparams to a string
-        urlparams = '&'.join([f'{k}={v}' for k,v in urlparams.items()])
-        import urllib.parse
-        url = url.split('?')[0] + '?' + urllib.parse.quote(urlparams)
-        print(url)
-        # return the permalink
-        return url
+        selections = (
+            df["station_id"].astype(str)
+            + "|"
+            + df["subloc"].astype(str)
+            + "|"
+            + df["param"].astype(str)
+        )
+        selections = selections.str.cat(sep=",")
+        urlparams["selections"] = selections
+        return urlparams
+
+    def set_ui_state_from_url(self, urlparams):
+        if "sdate" in urlparams and "edate" in urlparams:
+            self.time_range = (
+                datetime.fromisoformat(urlparams["sdate"][0].decode()),
+                datetime.fromisoformat(urlparams["edate"][0].decode()),
+            )
+        if "repo_level" in urlparams:
+            self.station_datastore.repo_level = eval(
+                urlparams["repo_level"][0].decode()
+            )
+        if "selections" in urlparams:
+            selections = urlparams["selections"][0].decode().split(",")
+            tuples = [tuple(s.split("|")) for s in selections]
+            columns = ["station_id", "subloc", "param"]
+            df = self.current_station_inventory.loc[:, columns]
+            tuples_df = pd.DataFrame(tuples, columns=columns)
+            # Get index of matching stations
+            df["subloc"] = df["subloc"].str.strip()
+            tuples_df["subloc"] = tuples_df["subloc"].str.strip()
+
+            # Convert all string columns to the same case if necessary (e.g., lower case)
+            df["station_id"] = df["station_id"].str.lower()
+            df["param"] = df["param"].str.lower()
+            tuples_df["station_id"] = tuples_df["station_id"].str.lower()
+            tuples_df["param"] = tuples_df["param"].str.lower()
+            # Use merge to find exact matches, include an indicator
+            merged_df = pd.merge(
+                df.reset_index(),
+                tuples_df,
+                on=["station_id", "subloc", "param"],
+                how="left",
+                indicator=True,
+            )
+            # Filter the merged DataFrame to only matched rows and get the original indices
+            matched_indices = merged_df[merged_df["_merge"] == "both"]["index"].tolist()
+            # select the stations
+            self.station_select.event(index=matched_indices)
+            # select the rows in the table -- can't select stations till they are displayed ?
+            # self.display_table.selection = list(index)
 
     def download_data(self):
         self.download_button.loading = True
@@ -620,11 +664,15 @@ class StationInventoryExplorer(param.Parameterized):
             self.permalink_button = pn.widgets.Button(
                 name="Permalink", button_type="primary", icon="link"
             )
-            self.permalink_button.on_click(lambda event: pn.state.location(url=self.get_permalink()))
+
+            self.permalink_button.on_click(self.permalink_callback)
+
             gspec = pn.GridStack(
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
-            gspec[0, 0:5] = pn.Row(self.plot_button, self.download_button)#, self.permalink_button)
+            gspec[0, 0:5] = pn.Row(
+                self.plot_button, self.download_button, self.permalink_button
+            )
             gspec[1:5, 0:10] = pn.Row(self.display_table)
             gspec[6:15, 0:10] = pn.Row(self.plot_panel)
             self.plots_panel = pn.Row(
@@ -632,6 +680,7 @@ class StationInventoryExplorer(param.Parameterized):
             )  # fails with object of type 'GridSpec' has no len()
         else:
             self.display_table.value = dfs
+
         return self.plots_panel
 
     def get_map_of_stations(self, vartype, color_category, symbol_category, query):
@@ -737,6 +786,7 @@ class StationInventoryExplorer(param.Parameterized):
         main_view = pn.Column(
             pn.bind(self.show_inventory, index=self.station_select.param.index)
         )
+        self.set_ui_state_from_url(pn.state.session_args)
         template = pn.template.VanillaTemplate(
             title="DMS Datastore",
             sidebar=[sidebar_view],
