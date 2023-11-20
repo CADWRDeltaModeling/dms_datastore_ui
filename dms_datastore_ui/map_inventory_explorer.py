@@ -30,6 +30,9 @@ from dms_datastore.read_ts import read_ts
 #
 from vtools.functions.filter import godin, cosine_lanczos
 
+#
+from . import fullscreen
+
 
 def uniform_unit_for(param):
     if param == "elev":
@@ -445,7 +448,7 @@ class StationInventoryExplorer(param.Parameterized):
                         ]
                     )
                     .cols(1)
-                    .opts(axiswise=True)
+                    .opts(axiswise=True, sizing_mode="stretch_both")
                 )
         except Exception as e:
             stackmsg = full_stack()
@@ -650,7 +653,8 @@ class StationInventoryExplorer(param.Parameterized):
             )
             self.plot_button.on_click(self.update_plots)
             self.plot_panel = pn.panel(
-                hv.Div("<h3>Select rows from table and click on button</h3>")
+                hv.Div("<h3>Select rows from table and click on button</h3>"),
+                sizing_mode="stretch_both",
             )
             # add a button to trigger the save function
             self.download_button = pn.widgets.FileDownload(
@@ -673,8 +677,8 @@ class StationInventoryExplorer(param.Parameterized):
             gspec[0, 0:5] = pn.Row(
                 self.plot_button, self.download_button, self.permalink_button
             )
-            gspec[1:5, 0:10] = pn.Row(self.display_table)
-            gspec[6:15, 0:10] = pn.Row(self.plot_panel)
+            gspec[1:5, 0:10] = fullscreen.FullScreen(pn.Row(self.display_table))
+            gspec[6:15, 0:10] = fullscreen.FullScreen(pn.Row(self.plot_panel))
             self.plots_panel = pn.Row(
                 gspec
             )  # fails with object of type 'GridSpec' has no len()
@@ -794,10 +798,9 @@ class StationInventoryExplorer(param.Parameterized):
             header_color="blue",
             logo="https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png",
         )
-        template.modal.append(self.get_disclaimer_text())
-        # Append a layout to the main area, to demonstrate the list-like API
         template.main.append(main_view)
         # Adding about button
+        template.modal.append(self.get_disclaimer_text())
         control_widgets[0].append(self.create_about_button(template))
         return template
 
