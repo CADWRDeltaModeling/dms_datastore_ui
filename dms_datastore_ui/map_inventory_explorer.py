@@ -327,6 +327,7 @@ class StationInventoryExplorer(param.Parameterized):
             # marker=dim('param').categorize(param_to_marker_map),
             tools=[hover],
             height=800,
+            projection=cartopy.crs.GOOGLE_MERCATOR,
         )
         self.map_station_inventory = self.map_station_inventory.opts(
             opts.Points(
@@ -583,6 +584,8 @@ class StationInventoryExplorer(param.Parameterized):
             df["param"] = df["param"].str.lower()
             tuples_df["station_id"] = tuples_df["station_id"].str.lower()
             tuples_df["param"] = tuples_df["param"].str.lower()
+            #
+            self.query = f"station_id in {tuple(tuples_df['station_id'].unique())}"
             # Use merge to find exact matches, include an indicator
             merged_df = pd.merge(
                 df.reset_index(),
@@ -593,7 +596,8 @@ class StationInventoryExplorer(param.Parameterized):
             )
             # Filter the merged DataFrame to only matched rows and get the original indices
             matched_indices = merged_df[merged_df["_merge"] == "both"]["index"].tolist()
-            # select the stations
+            # select the stations after reseting station inventory to full index
+            self.current_station_inventory = self.station_datastore.df_station_inventory
             self.station_select.event(index=matched_indices)
             # select the rows in the table -- can't select stations till they are displayed ?
             # self.display_table.selection = list(index)
