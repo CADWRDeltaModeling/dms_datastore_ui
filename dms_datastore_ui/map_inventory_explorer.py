@@ -261,6 +261,23 @@ param_to_marker_map = {
 }
 
 
+def get_color_dataframe(stations, color_cycle=hv.Cycle()):
+    """
+    Create a dataframe with station names and colors
+    """
+    cc = color_cycle.values
+    dfc = pd.DataFrame({"stations": stations, "color": cc[: len(stations)]})
+    dfc.set_index("stations", inplace=True)
+    return dfc
+
+
+def get_colors(stations, dfc):
+    """
+    Create a dictionary with station names and colors
+    """
+    return hv.Cycle(list(dfc.loc[stations].values.flatten()))
+
+
 class StationInventoryExplorer(param.Parameterized):
     """
     Show station inventory on map and select to display data available
@@ -408,6 +425,11 @@ class StationInventoryExplorer(param.Parameterized):
             layout_map = {}
             title_map = {}
             range_map = {}
+            station_map = {}  # list of stations for each unit
+            stationids = list(
+                (df["station_id"].astype(str) + df["subloc"].astype(str)).unique()
+            )
+            color_df = get_color_dataframe(stationids, hv.Cycle())
             for i, r in df.iterrows():
                 for repo_level in self.station_datastore.repo_level:
                     crvs = self.create_curves(r, repo_level)
@@ -424,7 +446,9 @@ class StationInventoryExplorer(param.Parameterized):
                             r["subloc"],
                         ]
                         range_map[unit] = None
+                        station_map[unit] = []
                     layout_map[unit].extend(crvs)
+                    station_map[unit].append(r["station_id"] + r["subloc"])
                     if self.sensible_range_yaxis:
                         for crv in crvs:
                             range_map[unit] = self._calculate_range(
@@ -437,7 +461,11 @@ class StationInventoryExplorer(param.Parameterized):
                 return (
                     hv.Layout(
                         [
-                            hv.Overlay(layout_map[k]).opts(
+                            hv.Overlay(layout_map[k])
+                            .opts(
+                                opts.Curve(color=get_colors(station_map[k], color_df))
+                            )
+                            .opts(
                                 show_legend=self.show_legend,
                                 legend_position=self.legend_position,
                                 ylim=tuple(range_map[k])
