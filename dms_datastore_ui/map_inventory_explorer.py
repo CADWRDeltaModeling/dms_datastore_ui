@@ -266,6 +266,9 @@ def get_color_dataframe(stations, color_cycle=hv.Cycle()):
     Create a dataframe with station names and colors
     """
     cc = color_cycle.values
+    # extend cc to the size of stations
+    while len(cc) < len(stations):
+        cc = cc + cc
     dfc = pd.DataFrame({"stations": stations, "color": cc[: len(stations)]})
     dfc.set_index("stations", inplace=True)
     return dfc
