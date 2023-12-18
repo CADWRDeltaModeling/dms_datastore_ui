@@ -155,6 +155,7 @@ class StationDatastore(param.Parameterized):
                 valid_repo_levels.append(repo_level)
         self.param.repo_level.objects = valid_repo_levels
         self.param.repo_level.default = valid_repo_levels[0]
+        self.repo_level = valid_repo_levels[0]  # select the first valid repo_level
         # read inventory file for each repo level
         self.inventory_file, mtime = find_lastest_fname(
             f"inventory*{self.repo_level}*.csv", self.dir
