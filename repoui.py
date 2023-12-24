@@ -3,9 +3,7 @@ import panel as pn
 import datetime as dt
 import sys
 
-dir = "refactor_test"
+dir = "continuous"
 explorer = mie.StationInventoryExplorer(dir)
 #
-ui = explorer.create_view().servable(title='Station Inventory Explorer')
-#ui.show()
-#
+ui = explorer.create_view().servable(title="Station Inventory Explorer")

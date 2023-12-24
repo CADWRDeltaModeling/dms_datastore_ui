@@ -1,4 +1,4 @@
-dir="refactor_test"
+dir="continuous"
 if [ -f "caching.log" ]; then
     echo "caching.log exists"
 else
