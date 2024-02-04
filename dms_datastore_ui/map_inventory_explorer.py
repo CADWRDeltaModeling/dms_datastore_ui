@@ -640,9 +640,14 @@ class StationInventoryExplorer(param.Parameterized):
             df = self.display_table.value.iloc[self.display_table.selection]
             df = df.merge(self.station_datastore.df_dataset_inventory)
             dflist = []
+            dfflist = []
             for i, r in df.iterrows():
                 for repo_level in self.station_datastore.repo_level:
                     dfdata = self.get_data_for_time_range(repo_level, r["filename"])
+                    # ignore user_flag for now
+                    dfdata = dfdata[['value']]
+                    # check if user_flag exists first...
+                    # dfflags = dfdata[['user_flag']]
                     param = r["param"]
                     unit = r["unit"]
                     subloc = r["subloc"]
@@ -652,10 +657,14 @@ class StationInventoryExplorer(param.Parameterized):
                     dfdata.columns = [
                         f"{repo_level}/{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}"
                     ]
+                    #dfflags.columns = dfdata.columns
                     dflist.append(dfdata)
+                    #dfflist.append(dfflags)
             dfdata = pd.concat(dflist, axis=1)
+            #dfflag = pd.concat(dfflist, axis=1)
             sio = StringIO()
             dfdata.to_csv(sio)
+            # ??? dfflag.to_csv(sio)
             sio.seek(0)
             return sio
         finally:
