@@ -1,5 +1,6 @@
 # cache directory
-cache/
+cache_continuous/
+cache/**
 # jupyter notebooks temp dir
 **/.ipynb_checkpoints
 # tests data
@@ -73,3 +74,4 @@ target/
 
 # pyenv python configuration file
 .python-version
+cache_continuous/cache.db
