@@ -17,7 +17,7 @@ setup(
     packages=['dms_datastore_ui'],
     entry_points={
         'console_scripts': [
-            'dms_datastore_ui=dms_datastore_ui.cli:cli'
+            'dms_datastore_ui=dms_datastore_ui.cli:main'
         ]
     },
     install_requires=requirements,

@@ -1,38 +1,51 @@
-from argparse import ArgumentParser
+import click
 from dms_datastore_ui import __version__
 
-def subcommand1(args):
-    print('Do something with subcommand 1', args)
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
-def cli(args=None):
-    p = ArgumentParser(
-        description="Web UI for dms_datastore",
-        conflict_handler='resolve'
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+def main():
+    pass
+
+@click.command(help="Print the version of dms_datastore_ui")
+def version():
+    print(__version__)
+
+@click.command(help="Show the station inventory explorer")
+@click.argument('repo_dir', type=click.Path(exists=True))
+def show_repo(repo_dir):
+    import dms_datastore_ui.map_inventory_explorer as mie
+    explorer = mie.StationInventoryExplorer(repo_dir)
+    #
+    ui = explorer.create_view().servable(title=f"Station Inventory Explorer: {repo_dir}")
+    ui.show()
+
+@click.command(help="Show the data screener")
+@click.argument('filepath', type=click.Path(exists=True))
+def data_screener(filepath):
+    from dms_datastore_ui.data_screener import DataScreener
+    screener = DataScreener(filepath)
+    screener.view().show()
+
+@click.command(help="Show the flag editor")
+@click.argument('filepath', type=click.Path(exists=True))
+def flag_editor(filepath):
+    from dms_datastore import read_ts, auto_screen
+    from dms_datastore_ui.flag_editor import FlagEditor
+    meta, df = read_ts.read_flagged(
+        filepath, apply_flags=False, return_flags=True, return_meta=True
     )
-    p.set_defaults(func=lambda args: p.print_help())
-    p.add_argument(
-        '-V', '--version',
-        action='version',
-        help='Show the conda-prefix-replacement version number and exit.',
-        version="dms_datastore_ui %s" % __version__,
-    )
+    editor = FlagEditor(df)
+    editor.view().show()
 
-    # do something with the sub commands
-    sub_p = p.add_subparsers(help='sub-command help')
-    # add show all sensors command
-    subcmd1 = sub_p.add_parser('sub1', help='subcommand 1')
-    subcmd1.add_argument('--input-file', type=str, required=False, help='an input file argument')
-    subcmd1.set_defaults(func=subcommand1)
 
-    # Now call the appropriate response.
-    pargs = p.parse_args(args)
-    pargs.func(pargs)
-    return 
-    # No return value means no error.
-    # Return a value of 1 or higher to signify an error.
-    # See https://docs.python.org/3/library/sys.html#sys.exit
 
+main.add_command(version)
+main.add_command(show_repo)
+main.add_command(data_screener)
+main.add_command(flag_editor)
 
 if __name__ == '__main__':
     import sys
-    cli(sys.argv[1:])
+    sys.exit(main())
