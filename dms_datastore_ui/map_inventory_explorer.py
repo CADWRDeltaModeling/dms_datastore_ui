@@ -138,6 +138,7 @@ class StationDatastore(param.Parameterized):
         default="cosine_lanczos",
         doc="Filter type is cosine lanczos with a 40 hour cutoff or godin",
     )
+    fill_gap = param.Integer(default=4, doc="Maximum fill gap in data")
     convert_units = param.Boolean(default=True, doc="Convert units to uniform units")
     caching = param.Boolean(default=True, doc="Use caching")
 
@@ -227,7 +228,8 @@ class StationDatastore(param.Parameterized):
 
     def get_filtered_data(self, df):
         if self.apply_filter:
-            df = df.interpolate(limit_direction="both", limit=10)
+            if self.fill_gap > 0:
+                df = df.interpolate(limit=self.fill_gap)
             if self.filter_type == "cosine_lanczos":
                 if len(df) > 0:
                     df["value"] = cosine_lanczos(df["value"], "40H")
@@ -472,9 +474,11 @@ class StationInventoryExplorer(param.Parameterized):
                             .opts(
                                 show_legend=self.show_legend,
                                 legend_position=self.legend_position,
-                                ylim=tuple(range_map[k])
-                                if range_map[k] is not None
-                                else (None, None),
+                                ylim=(
+                                    tuple(range_map[k])
+                                    if range_map[k] is not None
+                                    else (None, None)
+                                ),
                                 title=self._create_title(title_map[k]),
                             )
                             for k in layout_map
@@ -645,7 +649,7 @@ class StationInventoryExplorer(param.Parameterized):
                 for repo_level in self.station_datastore.repo_level:
                     dfdata = self.get_data_for_time_range(repo_level, r["filename"])
                     # ignore user_flag for now
-                    dfdata = dfdata[['value']]
+                    dfdata = dfdata[["value"]]
                     # check if user_flag exists first...
                     # dfflags = dfdata[['user_flag']]
                     param = r["param"]
@@ -657,11 +661,11 @@ class StationInventoryExplorer(param.Parameterized):
                     dfdata.columns = [
                         f"{repo_level}/{station_id}/{subloc}/{agency}/{agency_id_dbase}/{param}/{unit}"
                     ]
-                    #dfflags.columns = dfdata.columns
+                    # dfflags.columns = dfdata.columns
                     dflist.append(dfdata)
-                    #dfflist.append(dfflags)
+                    # dfflist.append(dfflags)
             dfdata = pd.concat(dflist, axis=1)
-            #dfflag = pd.concat(dfflist, axis=1)
+            # dfflag = pd.concat(dfflist, axis=1)
             sio = StringIO()
             dfdata.to_csv(sio)
             # ??? dfflag.to_csv(sio)
@@ -810,6 +814,7 @@ class StationInventoryExplorer(param.Parameterized):
                 pn.WidgetBox(
                     self.station_datastore.param.apply_filter,
                     self.station_datastore.param.filter_type,
+                    self.station_datastore.param.fill_gap,
                 ),
                 pn.WidgetBox(
                     self.param.show_legend,
