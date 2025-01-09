@@ -366,7 +366,7 @@ class StationInventoryExplorer(param.Parameterized):
 
     def show_inventory(self, index):
         if len(index) == 0:
-            index = [0]
+            index = slice(None)
         dfs = self.current_station_inventory.iloc[index]
         # return a UI with controls to plot and show data
         return self.update_data_table(dfs)
@@ -480,12 +480,16 @@ class StationInventoryExplorer(param.Parameterized):
                                     else (None, None)
                                 ),
                                 title=self._create_title(title_map[k]),
+                                min_height=400,
                             )
                             for k in layout_map
                         ]
                     )
                     .cols(1)
-                    .opts(axiswise=True, sizing_mode="stretch_both")
+                    .opts(
+                        axiswise=True,
+                        sizing_mode="stretch_both",
+                    )
                 )
         except Exception as e:
             stackmsg = full_stack()
@@ -690,12 +694,19 @@ class StationInventoryExplorer(param.Parameterized):
                 "param": "10%",
                 "unit": "10%",
             }
+            from bokeh.models.widgets.tables import NumberFormatter
+
             self.display_table = pn.widgets.Tabulator(
                 dfs,
                 disabled=True,
                 widths=column_width_map,
                 show_index=False,
                 sizing_mode="stretch_width",
+                formatters={
+                    "min_year": NumberFormatter(format="0"),
+                    "max_year": NumberFormatter(format="0"),
+                },
+                header_filters=True,
             )
             self.plot_button = pn.widgets.Button(
                 name="Plot", button_type="primary", icon="chart-line"
