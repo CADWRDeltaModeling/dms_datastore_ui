@@ -4,6 +4,7 @@ cache/**
 # jupyter notebooks temp dir
 **/.ipynb_checkpoints
 # tests data
+tests/**/*.csv
 tests/data
 # dss files
 *.dss
