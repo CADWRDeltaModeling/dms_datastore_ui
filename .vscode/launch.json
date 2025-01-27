@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "flag editor",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "dms_datastore_ui/flag_editor.py",
+            "console": "integratedTerminal",
+            "args": [
+                "tests/repo/continuous/screened/ncro_oad_*_temp_*.csv"
+            ]
+        },
+        {
+            "name": "data screener",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "dms_datastore_ui/data_screener.py",
+            "console": "integratedTerminal",
+            "args": [
+                "tests/repo/continuous/screened/ncro_oad_*_temp_*.csv"
+            ]
+        }
+
+    ]
+}
