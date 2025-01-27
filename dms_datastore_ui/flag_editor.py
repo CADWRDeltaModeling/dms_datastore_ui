@@ -5,7 +5,7 @@ import numpy as np
 import holoviews as hv
 from holoviews import streams
 from holoviews import opts, dim
-from dms_datastore import read_ts, auto_screen
+from dms_datastore import read_ts, auto_screen, write_ts
 from datetime import datetime, timedelta
 
 hv.extension("bokeh")
@@ -34,15 +34,17 @@ class FlagEditor(param.Parameterized):
         doc="Time window for data. Default is last 1000 days",
     )
 
-    def __init__(self, df, **kwargs):
+    def __init__(self, df, meta, **kwargs):
         super().__init__(
             **kwargs
         )  # param.Parameterized requires calling their super first
-        self.init(df)
+        self.init(df, meta)
 
-    def init(self, df):
+    def init(self, df, meta):
+        self.meta = meta
         self.x_col_name = "datetime"
         self.y_col_name = "value"
+        self.y_label = f"{self.meta['station_id']}/{self.meta['param']}({self.meta['unit']})"
         self.flag_col_name = "user_flag"
         self.flag_map = {"NOT BAD": "0", "BAD": "1"}
         self.dforiginal = df
@@ -60,7 +62,7 @@ class FlagEditor(param.Parameterized):
         self.df = self.dforiginal.loc[slice(*self.time_range)].copy().reset_index()
         self.dff = self.df.copy()
         self.points = hv.Points(self.df, kdims=[self.x_col_name, self.y_col_name]).opts(
-            alpha=0
+            alpha=0,
         )
         # Declare points as source of selection stream
         self.selection = streams.Selection1D(source=self.points)
@@ -80,7 +82,8 @@ class FlagEditor(param.Parameterized):
             name="Mark Flags", button_type="primary", icon="flag"
         )
         self.flag_button.on_click(self.do_mark_on_selected)
-
+        self.save_button = pn.widgets.Button(name="Save", button_type="success", icon="save")
+        self.save_button.on_click(self.save_data)
         time_range_widget = pn.Param(
             self.param.time_range,
             widgets={
@@ -92,7 +95,7 @@ class FlagEditor(param.Parameterized):
         )
         flag_widget = pn.Param(self.param.flag)
         row1 = pn.Row(
-            pn.Column(time_range_widget, flag_widget, self.plot_button),
+            pn.Column(time_range_widget, flag_widget, pn.Row(self.plot_button, self.save_button)),
             pn.Row(
                 pn.pane.Markdown(help_text),
                 sizing_mode="stretch_width",
@@ -107,14 +110,20 @@ class FlagEditor(param.Parameterized):
         self.plot_panel.object = self.make_plot()
         self.plot_panel.loading = False
 
+    def save_data(self, event):
+        fname = self.meta["station_id"] + "_" + self.meta["param"] + "_flagged.csv"
+        write_ts.write_ts_csv(self.dff, fname, self.meta)
+
     def make_plot(self):
         plot = self.points * self.dmap
         return plot.opts(
-            responsive=True, title="Ready to mark selections: " + self.flag
+            responsive=True, 
+            title=f"{self.meta['station_name']} ({self.meta['param']} [{self.meta['unit']}])",
         ).opts(
             opts.Points(
                 tools=["box_select", "lasso_select", "tap"],
                 active_tools=["box_select", "tap", "wheel_zoom"],
+                ylabel=self.y_label,
             )
         )
 
@@ -167,5 +176,5 @@ if __name__ == "__main__":
     meta, df = read_ts.read_flagged(
         args.filepath, apply_flags=False, return_flags=True, return_meta=True
     )
-    editor = FlagEditor(df)
+    editor = FlagEditor(df, meta)
     editor.view().show()
