@@ -25,7 +25,8 @@ import param
 #!pip install diskcache
 import diskcache
 import dms_datastore
-from dms_datastore.read_ts import read_ts
+from dms_datastore.read_ts import read_ts, read_flagged
+from dms_datastore_ui import data_screener, flag_editor
 
 #
 from vtools.functions.filter import godin, cosine_lanczos
@@ -198,9 +199,13 @@ class StationDatastore(param.Parameterized):
 
     def get_data(self, repo_level, filename):
         if self.caching:
-            return self.caching_read_ts(os.path.join(self.dir, repo_level, filename))
+            return self.caching_read_ts(self.get_data_filepath(repo_level, filename))
         else:
-            return read_ts(os.path.join(self.dir, repo_level, filename))
+            return read_ts(self.get_data_filepath(repo_level, filename))
+
+    def get_data_filepath(self, repo_level, filename):
+        filepath = os.path.join(self.dir, repo_level, filename)
+        return filepath
 
     def clear_cache(self):
         if self.caching:
@@ -508,7 +513,11 @@ class StationInventoryExplorer(param.Parameterized):
         else:
             return sdf
 
-    def get_data_for_time_range(self, repo_level, filename):
+    def get_data_for_time_range(self, repo_level, filename, meta=False):
+        """
+        Gets data for time range for repo_level (screened/formatted) for the filename
+        If meta is True it returns a tuple of the dataframe and meta
+        """
         try:
             df = self.station_datastore.get_data(repo_level, filename)
         except Exception as e:
@@ -572,9 +581,11 @@ class StationInventoryExplorer(param.Parameterized):
         ]
 
     def update_plots(self, event):
-        self.plot_panel.loading = True
+        self.display_area.loading = True
         self.plot_panel.object = self.create_plots(event)
-        self.plot_panel.loading = False
+        self.display_area.clear()
+        self.display_area.append(self.plot_panel)
+        self.display_area.loading = False
 
     def permalink_callback(self, event):
         if pn.state.location:
@@ -678,6 +689,49 @@ class StationInventoryExplorer(param.Parameterized):
         finally:
             self.download_button.loading = False
 
+    def show_data_screener(self, event):
+        self.display_area.loading = True
+        try:
+            df = self.display_table.value.iloc[self.display_table.selection]
+            df = df.merge(self.station_datastore.df_dataset_inventory)
+            view = pn.Tabs()
+            for i, r in df.iterrows():
+                for repo_level in self.station_datastore.repo_level:
+                    filepath = self.station_datastore.get_data_filepath(
+                        repo_level, r["filename"]
+                    )
+                    screener = data_screener.DataScreener(filepath)
+                    view.append(
+                        (
+                            f"{r['station_id']}_{r['subloc']}_{r['param']}",
+                            screener.view(),
+                        )
+                    )
+            self.display_area.clear()
+            self.display_area.append(view)
+        finally:
+            self.display_area.loading = False
+
+    def show_flag_editor(self, event):
+        self.display_area.loading = True
+        try:
+            df = self.display_table.value.iloc[self.display_table.selection]
+            df = df.merge(self.station_datastore.df_dataset_inventory)
+            view = pn.Tabs()
+            for i, r in df.iterrows():
+                for repo_level in self.station_datastore.repo_level:
+                    filepath = self.station_datastore.get_data_filepath(
+                        repo_level, r["filename"]
+                    )
+                    editor = flag_editor.FlagEditor(filepath)
+                    view.append(
+                        (f"{r['station_id']}_{r['subloc']}_{r['param']}", editor.view())
+                    )
+            self.display_area.clear()
+            self.display_area.append(view)
+        finally:
+            self.display_area.loading = False
+
     def update_data_table(self, dfs):
         # if attribute display_table is not set, create it
         if not hasattr(self, "display_table"):
@@ -708,6 +762,7 @@ class StationInventoryExplorer(param.Parameterized):
                 },
                 header_filters=True,
             )
+            self.display_area = pn.Column()
             self.plot_button = pn.widgets.Button(
                 name="Plot", button_type="primary", icon="chart-line"
             )
@@ -716,6 +771,14 @@ class StationInventoryExplorer(param.Parameterized):
                 hv.Div("<h3>Select rows from table and click on button</h3>"),
                 sizing_mode="stretch_both",
             )
+            self.screener_button = pn.widgets.Button(
+                name="Data Screener", button_type="primary", icon="table"
+            )
+            self.screener_button.on_click(self.show_data_screener)
+            self.editor_button = pn.widgets.Button(
+                name="Flag Editor", button_type="primary", icon="flag"
+            )
+            self.editor_button.on_click(self.show_flag_editor)
             # add a button to trigger the save function
             self.download_button = pn.widgets.FileDownload(
                 label="Download",
@@ -735,10 +798,16 @@ class StationInventoryExplorer(param.Parameterized):
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
             gspec[0, 0:5] = pn.Row(
-                self.plot_button, self.download_button, self.permalink_button
+                self.plot_button,
+                self.screener_button,
+                self.editor_button,
+                self.download_button,
+                self.permalink_button,
             )
+            self.display_area.clear()
+            self.display_area.append(self.plot_panel)
             gspec[1:5, 0:10] = fullscreen.FullScreen(pn.Row(self.display_table))
-            gspec[6:15, 0:10] = fullscreen.FullScreen(pn.Row(self.plot_panel))
+            gspec[6:15, 0:10] = fullscreen.FullScreen(self.display_area)
             self.plots_panel = pn.Row(
                 gspec
             )  # fails with object of type 'GridSpec' has no len()

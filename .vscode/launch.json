@@ -21,9 +21,24 @@
             "program": "dms_datastore_ui/data_screener.py",
             "console": "integratedTerminal",
             "args": [
-                "tests/repo/continuous/screened/ncro_oad_*_temp_*.csv"
+                "\"tests/repo/continuous/screened/ncro_oad_*_temp_*.csv\""
             ]
-        }
-
+        },
+        {
+            "name": "show-repo",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": [
+                "dms_datastore_ui.cli",
+                "show-repo",
+                "y:/repo/continuous"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "autoReload": {
+                "enable": true,
+            }
+        },
     ]
 }

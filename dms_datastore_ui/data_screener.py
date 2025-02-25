@@ -122,7 +122,10 @@ class DataScreener(param.Parameterized):
 
     def do_screening(self, event):
         self.plot_panel.loading = True
-        self.plot_panel.object = self.screen_and_plot()
+        try:
+            self.plot_panel.object = self.screen_and_plot()
+        except Exception as e:
+            self.plot_panel.object = hv.Div(f"<h3>Error: {e}</h3>")
         self.plot_panel.loading = False
 
     def save_screening(self, event):
@@ -165,12 +168,32 @@ class DataScreener(param.Parameterized):
         return pn.Column(row1, row2)
 
 
+def get_filepath(base_dir, station_id, subloc, param):
+    # Implement the logic to generate the file path based on base_dir, station_id, subloc, and param
+    # For example:
+    return f"{base_dir}/{station_id}_{subloc}_{param}.csv"
+
+
 # create using argparse that takes in a file path and then shows the data screener app
 if __name__ == "__main__":
+    import sys
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("filepath", help="path to the data file")
+    parser.add_argument("station_id", help="ID of the station")
+    parser.add_argument("param", help="Parameter to screen")
+    parser.add_argument("--subloc", help="Sublocation (optional)", default="")
+    parser.add_argument(
+        "--base_dir", help="Base directory for data files", default="/path/to/data"
+    )
     args = parser.parse_args()
-    screener = DataScreener(args.filepath)
+
+    print(f"Station ID: {args.station_id}")
+    print(f"Parameter: {args.param}")
+    print(f"Sublocation: {args.subloc}")
+    print(f"Base Directory: {args.base_dir}")
+
+    # Assuming you have a method to get the filepath from station_id, subloc, param, and base_dir
+    filepath = get_filepath(args.base_dir, args.station_id, args.subloc, args.param)
+    screener = DataScreener(filepath)
     screener.view().show()

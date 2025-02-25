@@ -4,11 +4,12 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python<3.13
+  - python
   - pip
   - ipykernel
   - beautifulsoup4
   - vtools3
+  - numba
   - pandas
   - scipy
   - xarray
@@ -17,6 +18,7 @@ dependencies:
   - matplotlib
   - scikit-learn
   - contourpy
+  - holoviews=1.20.0
   - hvplot # =0.8.1
   - geoviews
   - holoviews
