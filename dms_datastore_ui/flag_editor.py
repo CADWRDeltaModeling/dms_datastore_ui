@@ -7,6 +7,7 @@ from holoviews import streams
 from holoviews import opts, dim
 from dms_datastore import read_ts, auto_screen, write_ts
 from datetime import datetime, timedelta
+import io
 
 hv.extension("bokeh")
 pn.extension()
@@ -89,10 +90,12 @@ class FlagEditor(param.Parameterized):
             name="Mark Flags", button_type="primary", icon="flag"
         )
         self.flag_button.on_click(self.do_mark_on_selected)
-        self.save_button = pn.widgets.Button(
-            name="Save", button_type="success", icon="save"
+        self.download_button = pn.widgets.FileDownload(
+            file=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_flagged.csv",
+            button_type="success",
+            icon="file-download",
+            callback=self.save_data,
         )
-        self.save_button.on_click(self.save_data)
         time_range_widget = pn.Param(
             self.param.time_range,
             widgets={
@@ -107,7 +110,7 @@ class FlagEditor(param.Parameterized):
             pn.Column(
                 time_range_widget,
                 flag_widget,
-                pn.Row(self.plot_button, self.save_button),
+                pn.Row(self.plot_button, self.download_button),
             ),
             pn.Row(
                 pn.pane.Markdown(help_text),
@@ -123,11 +126,11 @@ class FlagEditor(param.Parameterized):
         self.plot_panel.object = self.make_plot()
         self.plot_panel.loading = False
 
-    def save_data(self, event):
-        self.plot_panel.loading = True
-        fname = self.meta["station_id"] + "_" + self.meta["param"] + "_flagged.csv"
-        write_ts.write_ts_csv(self.dff, fname, self.meta)
-        self.plot_panel.loading = False
+    def save_data(self):
+        buffer = io.StringIO()
+        write_ts.write_ts_csv(self.dff, buffer, self.meta)
+        buffer.seek(0)
+        return buffer
 
     def make_plot(self):
         plot = self.points * self.dmap

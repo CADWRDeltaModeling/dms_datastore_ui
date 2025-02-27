@@ -701,6 +701,7 @@ class StationInventoryExplorer(param.Parameterized):
                         repo_level, r["filename"]
                     )
                     screener = data_screener.DataScreener(filepath)
+                    screener.time_range = self.time_range
                     view.append(
                         (
                             f"{r['station_id']}_{r['subloc']}_{r['param']}",
@@ -724,6 +725,7 @@ class StationInventoryExplorer(param.Parameterized):
                         repo_level, r["filename"]
                     )
                     editor = flag_editor.FlagEditor(filepath)
+                    editor.time_range = self.time_range
                     view.append(
                         (f"{r['station_id']}_{r['subloc']}_{r['param']}", editor.view())
                     )

@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import yaml
 from datetime import datetime, timedelta
+import io
 
 hv.extension("bokeh")
 pn.extension("codeeditor")
@@ -128,19 +129,23 @@ class DataScreener(param.Parameterized):
             self.plot_panel.object = hv.Div(f"<h3>Error: {e}</h3>")
         self.plot_panel.loading = False
 
-    def save_screening(self, event):
-        fname = f"{self.meta['station_id']}_{self.meta['sublocation']}_{self.meta['param']}_screened.csv"
-        write_ts.write_ts_csv(self.df, fname, self.meta)
+    def save_screening(self):
+        buffer = io.StringIO()
+        write_ts.write_ts_csv(self.df, buffer, self.meta)
+        buffer.seek(0)
+        return buffer
 
     def view(self):
         self.plot_button = pn.widgets.Button(
             name="Plot", button_type="primary", icon="chart-line"
         )
         self.plot_button.on_click(self.do_screening)
-        self.save_button = pn.widgets.Button(
-            name="Save", button_type="success", icon="save"
+        self.download_button = pn.widgets.FileDownload(
+            button_type="success",
+            icon="file-download",
+            filename=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_screened.csv",
+            callback=self.save_screening,
         )
-        self.save_button.on_click(self.save_screening)
         self.plot_panel = pn.panel(
             hv.Div("<h3>Click on button</h3>"),
             sizing_mode="stretch_both",
@@ -157,7 +162,9 @@ class DataScreener(param.Parameterized):
         )
         self.create_editor()
         row1 = pn.Row(
-            pn.Column(time_range_widget, pn.Row(self.plot_button, self.save_button)),
+            pn.Column(
+                time_range_widget, pn.Row(self.plot_button, self.download_button)
+            ),
             pn.Row(
                 pn.pane.Markdown(data_screening_help_text),
                 sizing_mode="stretch_width",
