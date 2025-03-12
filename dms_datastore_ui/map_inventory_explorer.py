@@ -843,7 +843,7 @@ class StationInventoryExplorer(param.Parameterized):
             gspec = pn.GridStack(
                 sizing_mode="stretch_both", allow_resize=True, allow_drag=False
             )  # ,
-            gspec[0, 0:5] = pn.Row(
+            gspec[0, 0:10] = pn.Row(
                 self.plot_button,
                 self.screener_button,
                 self.editor_button,
