@@ -734,6 +734,34 @@ class StationInventoryExplorer(param.Parameterized):
         finally:
             self.display_area.loading = False
 
+    def show_gap_visualizer(self, event):
+        self.display_area.loading = True
+        try:
+            df = self.display_table.value.iloc[self.display_table.selection]
+            df = df.merge(self.station_datastore.df_dataset_inventory)
+            from dms_datastore_ui import gap_visualizer
+
+            if df is None or df.empty:
+                return hv.Div("<h3>Select rows from table and click on button</h3")
+            for i, r in df.iterrows():
+                for repo_level in self.station_datastore.repo_level:
+                    dfdata = self.get_data_for_time_range(repo_level, r["filename"])
+                    gv = gap_visualizer.GapVisualizer(dfdata, r)
+                    self.display_area.clear()
+                    self.display_area.append(
+                        pn.Column(gv.visualize_gap(), sizing_mode="stretch_width")
+                    )
+        except Exception as e:
+            stackmsg = full_stack()
+            print(stackmsg)
+            pn.state.notifications.error(f"Error while fetching data for {e}")
+            self.display_area.clear()
+            self.display_area.append(
+                hv.Div(f"<h3> Exception while fetching data </h3> <pre>{e}</pre>")
+            )
+        finally:
+            self.display_area.loading = False
+
     def update_data_table(self, dfs):
         # if attribute display_table is not set, create it
         if not hasattr(self, "display_table"):
@@ -777,6 +805,10 @@ class StationInventoryExplorer(param.Parameterized):
                 name="Data Screener", button_type="primary", icon="table"
             )
             self.screener_button.on_click(self.show_data_screener)
+            self.gap_biz_button = pn.widgets.Button(
+                name="Gap Visualizer", button_type="primary", icon="table"
+            )
+            self.gap_biz_button.on_click(self.show_gap_visualizer)
             self.editor_button = pn.widgets.Button(
                 name="Flag Editor", button_type="primary", icon="flag"
             )
@@ -803,6 +835,7 @@ class StationInventoryExplorer(param.Parameterized):
                 self.plot_button,
                 self.screener_button,
                 self.editor_button,
+                self.gap_biz_button,
                 self.download_button,
                 self.permalink_button,
             )

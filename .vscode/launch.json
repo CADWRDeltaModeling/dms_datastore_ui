@@ -32,7 +32,7 @@
             "args": [
                 "dms_datastore_ui.cli",
                 "show-repo",
-                "y:/repo/continuous"
+                "y:/repo/continuous",
             ],
             "console": "integratedTerminal",
             "justMyCode": false,
@@ -40,5 +40,12 @@
                 "enable": true,
             }
         },
+        { "name": "visgap",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "notebooks/vis_gap.py",
+            "console": "integratedTerminal"
+        }
+
     ]
 }
