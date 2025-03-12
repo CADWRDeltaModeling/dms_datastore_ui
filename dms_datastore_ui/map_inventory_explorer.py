@@ -743,14 +743,26 @@ class StationInventoryExplorer(param.Parameterized):
 
             if df is None or df.empty:
                 return hv.Div("<h3>Select rows from table and click on button</h3")
+
+            # Create individual views with linked x ranges
+            views = []
             for i, r in df.iterrows():
                 for repo_level in self.station_datastore.repo_level:
                     dfdata = self.get_data_for_time_range(repo_level, r["filename"])
                     gv = gap_visualizer.GapVisualizer(dfdata, r)
-                    self.display_area.clear()
-                    self.display_area.append(
-                        pn.Column(gv.visualize_gap(), sizing_mode="stretch_width")
-                    )
+                    crv, spike = gv.visualize_gap()
+                    views.append(crv)
+                    views.append(spike)
+
+            layout = (
+                hv.Layout(views)
+                .cols(1)
+                .opts(shared_axes=True, sizing_mode="stretch_width")
+            )
+
+            view = pn.Column(layout, sizing_mode="stretch_width")
+            self.display_area.clear()
+            self.display_area.append(view)
         except Exception as e:
             stackmsg = full_stack()
             print(stackmsg)

@@ -20,40 +20,40 @@ class GapVisualizer:
         """
         missing_df = self.df[self.df[self.column_name].isna()][[self.column_name]]
         index_name = self.df.index.name if self.df.index.name is not None else "index"
+        crv_name = f"{self.row_info['station_id']}_{self.row_info['subloc']}_{self.row_info['param']}"
         # Create a curve plot
-        curve = hv.Curve(
-            self.df,
-            index_name,
-            self.column_name,
-            label=f"{self.row_info['station_id']}_{self.row_info['subloc']}_{self.row_info['param']}",
-        ).opts(
-            height=300,
-            title="Time Series Data",
-            xlabel="Time",
-            ylabel=self.column_name,
-            responsive=True,
+        curve = (
+            hv.Curve(
+                self.df,
+                index_name,
+                self.column_name,
+                label=f"{crv_name}",
+            )
+            .opts(
+                height=300,
+                title=f"Time Series: {crv_name}",
+                xlabel="Time",
+                ylabel=self.row_info["param"],
+                responsive=True,
+                xaxis=None,
+                line_width=1.50,
+                color="red",
+                tools=["hover"],
+            )
+            .redim(value=crv_name)
         )
         # Create a spikes plot
-        spikes = hv.Spikes(missing_df, index_name, [], label="Missing").opts(
-            height=120,
-            title="Missing Data Visualization",
-            xlabel="Time",
-            ylabel="Series",
-            responsive=True,
-        )
-        return (
-            (curve + spikes)
+        spikes = (
+            hv.Spikes(missing_df, index_name, [], label="Missing")
             .opts(
-                opts.Curve(
-                    xaxis=None,
-                    line_width=1.50,
-                    color="red",
-                    tools=["hover"],
-                ),
-                opts.Spikes(yaxis=None, line_width=0.5, color="grey"),
+                height=120,
+                xlabel="Time",
+                ylabel="Series",
+                responsive=True,
+                yaxis=None,
+                line_width=0.5,
+                color="grey",
             )
-            .opts(
-                sizing_mode="stretch_width",
-            )
-            .cols(1)
+            .redim(value=f"Missing Data: {crv_name}")
         )
+        return curve, spikes
