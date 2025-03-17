@@ -325,7 +325,9 @@ class StationInventoryExplorer(param.Parameterized):
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
-        self.station_datastore = StationDatastore(dir)
+        self.station_datastore = pn.state.as_cached(
+            "datastore", lambda x: StationDatastore(x), x=dir
+        )
         self.param.year_range.bounds = (
             self.station_datastore.min_year,
             self.station_datastore.max_year,
@@ -962,10 +964,11 @@ class StationInventoryExplorer(param.Parameterized):
             query=self.param.query,
         )
         sidebar_view = pn.Column(
-            control_widgets, pn.Column(pn.Row("Station Map", map_tooltip), map_display)
+            control_widgets,
+            pn.Column(pn.Row("Station Map", map_tooltip), map_display),
         )
         main_view = pn.Column(
-            pn.bind(self.show_inventory, index=self.station_select.param.index)
+            pn.bind(self.show_inventory, index=self.station_select.param.index),
         )
         self.set_ui_state_from_url(pn.state.session_args)
         template = pn.template.VanillaTemplate(
