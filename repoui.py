@@ -1,10 +1,11 @@
-import dms_datastore_ui.map_inventory_explorer as mie
 import panel as pn
 
-pn.extension("gridstack", "tabulator", notifications=True, design="native")
+pn.extension(
+    "gridstack", "tabulator", "codeeditor", notifications=True, design="native"
+)
 import datetime as dt
 import sys
-
+from dms_datastore_ui import fullscreen
 
 main_panel = pn.Column(
     pn.indicators.LoadingSpinner(
@@ -27,6 +28,7 @@ template = pn.template.VanillaTemplate(
 
 
 def load_explorer():
+    import dms_datastore_ui.map_inventory_explorer as mie
 
     dir = "continuous"
     explorer = mie.StationInventoryExplorer(dir)
@@ -41,7 +43,6 @@ def load_explorer():
 
     # Add objects individually to ensure proper reactivity
     for obj in te.main.objects:
-        print(obj)
         main_panel.append(pn.panel(obj))
 
     # Add the disclaimer text to the modal
