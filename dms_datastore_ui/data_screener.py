@@ -143,7 +143,7 @@ class DataScreener(param.Parameterized):
         self.download_button = pn.widgets.FileDownload(
             button_type="success",
             icon="file-download",
-            filename=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_screened.csv",
+            filename=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_screened_{self.time_range[1].year}.csv",
             callback=self.save_screening,
         )
         self.plot_panel = pn.panel(

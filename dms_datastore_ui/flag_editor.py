@@ -91,7 +91,7 @@ class FlagEditor(param.Parameterized):
         )
         self.flag_button.on_click(self.do_mark_on_selected)
         self.download_button = pn.widgets.FileDownload(
-            file=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_flagged.csv",
+            file=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_flagged_{self.time_range[1].year}.csv",
             button_type="success",
             icon="file-download",
             callback=self.save_data,
