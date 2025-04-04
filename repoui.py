@@ -1,7 +1,13 @@
 import panel as pn
 
 pn.extension(
-    "gridstack", "tabulator", "codeeditor", notifications=True, design="native"
+    "gridstack",
+    "tabulator",
+    "codeeditor",
+    notifications=True,
+    design="native",
+    disconnect_notification="Connection lost, try reloading the page!",
+    ready_notification="Application fully loaded.",
 )
 import datetime as dt
 import sys
