@@ -157,6 +157,12 @@ class StationDatastore(param.Parameterized):
         for repo_level in self.param.repo_level.objects:
             if os.path.exists(os.path.join(self.dir, repo_level)):
                 valid_repo_levels.append(repo_level)
+            else:
+                print(f"{repo_level} doesn't exist in {self.dir}")
+        if len(valid_repo_levels) == 0:
+            raise ValueError(
+                f"No valid repos found in {self.dir}: valid repos are {self.param.repo_level.objects}"
+            )
         self.param.repo_level.objects = valid_repo_levels
         self.param.repo_level.default = valid_repo_levels[0]
         # self.repo_level = valid_repo_levels[0]  # select the first valid repo_level
@@ -164,6 +170,10 @@ class StationDatastore(param.Parameterized):
         self.inventory_file, mtime = find_lastest_fname(
             f"inventory_datasets_{self.repo_level}*.csv", self.dir
         )
+        if not self.inventory_file:
+            raise FileNotFoundError(
+                f"Could not find inventory_datasets_{self.repo_level}*.csv file in {self.dir}"
+            )
         print("Using inventory file: ", self.inventory_file)
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file)
