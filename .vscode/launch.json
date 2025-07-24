@@ -5,6 +5,37 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "repoui",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "panel",
+            "console": "integratedTerminal",
+            "args": [
+                "serve",
+                "--dev",
+                "--autoreload",
+                "--show",
+                "${workspaceFolder}/repoui.py",
+            ],
+            "cwd": "y:/repo",
+            "justMyCode": false,
+        },
+        {
+            "name": "uimgr",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "panel",
+            "console": "integratedTerminal",
+            "args": [
+                "serve",
+                "--dev",
+                "--autoreload",
+                "--show",
+                "dms_datastore_ui/datastore_uimgr.py",
+            ],
+            "justMyCode": false,
+        },
+        {
             "name": "flag editor",
             "type": "debugpy",
             "request": "launch",

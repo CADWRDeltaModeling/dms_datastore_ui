@@ -12,7 +12,10 @@ pn.extension(
 import datetime as dt
 import sys
 from dms_datastore_ui import fullscreen
+import param
+import holoviews as hv
 
+hv.extension("bokeh")
 main_panel = pn.Column(
     pn.indicators.LoadingSpinner(
         value=True, color="primary", size=50, name="Loading..."
@@ -55,6 +58,54 @@ def load_explorer():
     template.modal.append(explorer.get_disclaimer_text())
 
 
-pn.state.onload(load_explorer)
+def load_dataui():
+    from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr
+    from pydelmod.dvue.dataui import DataUI
 
-template.servable(title="Station Inventory Explorer")
+    dir = "continuous"
+    uimgr = DatastoreUIMgr(dir)
+    ui = DataUI(uimgr)
+    view = ui.create_view()
+
+    # Clear existing content first
+    main_panel.clear()
+    sidebar_panel.clear()
+
+    # Add the DataUI components to the template
+    if hasattr(view, "sidebar") and view.sidebar is not None:
+        for obj in view.sidebar.objects:
+            sidebar_panel.append(obj)
+
+    if hasattr(view, "main") and view.main is not None:
+        for obj in view.main.objects:
+            main_panel.append(obj)
+    else:
+        # If no specific main panel structure, add the entire view
+        main_panel.append(pn.panel(view))
+
+
+def handle_hash_change(event):
+    if event.new == "#dataui":
+        load_dataui()
+    else:
+        load_explorer()
+
+
+# Initialize the app based on current location hash
+def init_app():
+    # Access location via pn.state.location
+    location = pn.state.location
+
+    # Set up the hash watcher
+    location.param.watch(handle_hash_change, "hash")
+
+    # Initial load based on current hash
+    if location.hash == "dataui":
+        load_dataui()
+    else:
+        load_explorer()
+
+
+pn.state.onload(init_app)
+
+template.servable(title="DMS Datastore")
