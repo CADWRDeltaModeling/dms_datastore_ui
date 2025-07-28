@@ -1,0 +1,63 @@
+[build-system]
+requires = [
+    "setuptools>=45",
+    "wheel",
+    "setuptools_scm>=6.2"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dms_datastore_ui"
+dynamic = ["version"]
+description = "Web UI for dms_datastore"
+authors = [
+    {name = "Nicky Sandhu", email = "psandhu@water.ca.gov"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pandas",
+    "scipy",
+    "xarray",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "contourpy",
+    "holoviews>=1.20.0",
+    "hvplot",
+    "geoviews",
+    "panel",
+    "diskcache",
+    "joblib",
+    "beautifulsoup4",
+    "vtools3",
+    "numba",
+    "dms-datastore",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/CADWRDeltaModeling/dms_datastore_ui"
+"Bug Tracker" = "https://github.com/CADWRDeltaModeling/dms_datastore_ui/issues"
+
+[project.scripts]
+dms_datastore_ui = "dms_datastore_ui.cli:main"
+
+[tool.setuptools]
+packages = ["dms_datastore_ui"]
+
+[tool.setuptools_scm]
+write_to = "dms_datastore_ui/_version.py"
+version_scheme = "release-branch-semver"
+local_scheme = "node-and-date"
+# Other options: "guess-next-dev", "release-branch-semver", "python-simplified-semver", "no-guess-dev"
