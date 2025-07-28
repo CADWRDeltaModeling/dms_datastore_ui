@@ -368,7 +368,7 @@ class StationInventoryExplorer(param.Parameterized):
             cmap="Category10",
             # marker=dim('param').categorize(param_to_marker_map),
             tools=[hover],
-            height=800,
+            height=500,
             projection=cartopy.crs.GOOGLE_MERCATOR,
         )
         self.map_station_inventory = self.map_station_inventory.opts(
@@ -377,7 +377,7 @@ class StationInventoryExplorer(param.Parameterized):
                 nonselection_alpha=0.3,  # nonselection_color='gray',
                 size=10,
             )
-        ).opts(frame_width=500, active_tools=["wheel_zoom"])
+        ).opts(frame_width=650, active_tools=["wheel_zoom"])
 
         self.station_select = streams.Selection1D(
             source=self.map_station_inventory
@@ -986,7 +986,7 @@ class StationInventoryExplorer(param.Parameterized):
         template = pn.template.VanillaTemplate(
             title="DMS Datastore",
             sidebar=[sidebar_view],
-            sidebar_width=650,
+            sidebar_width=350,
             header_color="blue",
             logo="https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png",
         )

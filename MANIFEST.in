@@ -1,1 +1,1 @@
-include versioneer.py
+# No need to include versioneer.py anymore, as we're using setuptools_scm
