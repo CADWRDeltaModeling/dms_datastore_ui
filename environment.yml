@@ -18,19 +18,20 @@ dependencies:
   - matplotlib
   - scikit-learn
   - contourpy
-  - holoviews=1.20.0 # temporary pinning
+  - holoviews # =1.20.0 # temporary pinning
   - hvplot # =0.8.1
   - geoviews
   - holoviews
   - jupyter_bokeh
   - panel
-  - sqlite=3.47.2 # temporary pinning
+  - sqlite # =3.47.2 # temporary pinning
   - diskcache
   - joblib
   - fonttools
   - pyparsing
   - kiwisolver
   - dms-datastore
+  - pydelmod
 #  - pip:
 #     - -e git+https://github.com/CADWRDeltaModeling/dms_datastore_ui#egg=dms_datastore_ui
 # alternatively if you want to develop ...

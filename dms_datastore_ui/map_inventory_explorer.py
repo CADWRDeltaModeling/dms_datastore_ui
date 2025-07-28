@@ -899,11 +899,11 @@ class StationInventoryExplorer(param.Parameterized):
         )
 
     def get_disclaimer_text(self):
-        from ._version import get_versions
+        from ._version import version
 
         # Add disclaimer about data hosted here
         # insert app version with date time of last commit and commit id
-        version_string = f"DMS Datastore UI: {get_versions()['version']}"
+        version_string = f"DMS Datastore UI: {version}"
         disclaimer_text = f"""
         ## App version:
         ### {version_string}
