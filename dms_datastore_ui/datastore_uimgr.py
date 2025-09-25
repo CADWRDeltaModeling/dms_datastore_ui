@@ -10,6 +10,7 @@ from pydelmod.dvue.actions import (
 from pydelmod.dvue.dataui import DataUIManager
 from pydelmod.dvue.tsdataui import TimeSeriesDataUIManager
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
+from dms_datastore_ui.map_inventory_explorer import to_uniform_units
 import holoviews as hv
 import geopandas as gpd
 
@@ -21,6 +22,11 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         doc="repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)",
     )
 
+    unit_conversion = param.Boolean(
+        default=False,
+        doc="Convert units to standard units (e.g. feet to meters, cfs to cms)",
+    )
+
     def __init__(self, dir, repo_level="screened", **kwargs):
         self.dir = dir
         self.datastore = StationDatastore(dir)
@@ -30,6 +36,19 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         self.color_cycle_column = "station_id"
         self.dashed_line_cycle_column = "subloc"
         self.marker_cycle_column = "param"
+
+    def get_widgets(self):
+        widget_tabs = super().get_widgets()
+        # add specific widgets for transforming data for unit conversion
+        widget_tabs.append(
+            (
+                "Unit Conversion",
+                pn.WidgetBox(
+                    self.param.unit_conversion,
+                ),
+            )
+        )
+        return widget_tabs
 
     # data related methods
     def get_data_catalog(self):
@@ -109,6 +128,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
         try:
             ts_data = self.datastore.get_data(repo_level, filename)
+            if self.unit_conversion:
+                ts_data, unit = to_uniform_units(ts_data, r["param"], r["unit"])
+                r["unit"] = unit  # update unit in record
             param = r["param"]
             unit = r["unit"]
             station_id = r["station_id"]
@@ -206,9 +228,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         return title
 
 
-dir = "y:/repo/continuous"
-uimgr = DatastoreUIMgr(dir)
-from pydelmod.dvue import dataui
+# dir = "y:/repo/continuous"
+# uimgr = DatastoreUIMgr(dir)
+# from pydelmod.dvue import dataui
 
-ui = dataui.DataUI(uimgr, station_id_column="station_id")
-ui.create_view(title="DMS Datastore Data UI").servable()
+# ui = dataui.DataUI(uimgr, station_id_column="station_id")
+# ui.create_view(title="DMS Datastore Data UI").servable()
