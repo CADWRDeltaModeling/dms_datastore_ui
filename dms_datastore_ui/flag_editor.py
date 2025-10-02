@@ -5,7 +5,8 @@ import numpy as np
 import holoviews as hv
 from holoviews import streams
 from holoviews import opts, dim
-from dms_datastore import read_ts, auto_screen, write_ts
+from dms_datastore.read_ts import read_flagged, read_ts
+from dms_datastore import auto_screen, write_ts
 from datetime import datetime, timedelta
 import io
 
@@ -40,7 +41,7 @@ class FlagEditor(param.Parameterized):
             **kwargs
         )  # param.Parameterized requires calling their super first
         self.filepath = filepath
-        meta, df = read_ts.read_flagged(
+        meta, df = read_flagged(
             filepath, apply_flags=False, return_flags=True, return_meta=True
         )
 

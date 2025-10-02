@@ -6,7 +6,8 @@ import hvplot.pandas
 import holoviews as hv
 from holoviews import streams
 from holoviews import opts, dim
-from dms_datastore import read_ts, auto_screen, write_ts
+from dms_datastore.read_ts import read_flagged, read_ts
+from dms_datastore import auto_screen, write_ts
 import pandas as pd
 import numpy as np
 import yaml
@@ -75,7 +76,7 @@ class DataScreener(param.Parameterized):
         )
 
     def load(self, filepath):
-        self.meta, self.df = read_ts.read_flagged(
+        self.meta, self.df = read_flagged(
             filepath, apply_flags=False, return_flags=True, return_meta=True
         )
 

@@ -5,6 +5,7 @@ pn.extension(
     "tabulator",
     "codeeditor",
     notifications=True,
+    reconnect=True,
     design="native",
     disconnect_notification="Connection lost, try reloading the page!",
     ready_notification="Application fully loaded.",
