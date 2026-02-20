@@ -58,8 +58,8 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # use lon,lat to convert inventory to geodataframe
         inventory = gpd.GeoDataFrame(
             inventory,
-            geometry=gpd.points_from_xy(inventory.lon, inventory.lat),
-            crs="EPSG:4326",  # WGS84 coordinate reference system
+            geometry=gpd.points_from_xy(inventory.x, inventory.y, crs="EPSG:26910"),
+            crs="EPSG:26910",
         )
         return inventory
 

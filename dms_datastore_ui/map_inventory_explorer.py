@@ -194,8 +194,8 @@ class StationDatastore(param.Parameterized):
             "max_year",
             "agency",
             "agency_id_dbase",
-            "lat",
-            "lon",
+            "x",
+            "y",
         ]
         self.df_station_inventory = (
             self.df_dataset_inventory.groupby(group_cols)
@@ -360,8 +360,11 @@ class StationInventoryExplorer(param.Parameterized):
         ]
         hover = HoverTool(tooltips=tooltips)
         self.current_station_inventory = self.station_datastore.df_station_inventory
+        self.map_crs = cartopy.crs.epsg(26910)
         self.map_station_inventory = gv.Points(
-            self.current_station_inventory, kdims=["lon", "lat"]
+            self.current_station_inventory,
+            kdims=["x", "y"],
+            crs=self.map_crs,
         ).opts(
             size=6,
             color=dim(self.map_color_category),

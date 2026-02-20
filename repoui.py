@@ -62,10 +62,11 @@ def load_explorer():
 def load_dataui():
     from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr
     from pydelmod.dvue.dataui import DataUI
+    import cartopy.crs as ccrs
 
     dir = "continuous"
     uimgr = DatastoreUIMgr(dir)
-    ui = DataUI(uimgr)
+    ui = DataUI(uimgr, crs=ccrs.epsg(26910))
     view = ui.create_view()
 
     # Clear existing content first
