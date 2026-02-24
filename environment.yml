@@ -4,7 +4,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python
+  - python<3.14 # pinning at the same level as dms_datastore
   - pip
   - ipykernel
   - beautifulsoup4
