@@ -10,7 +10,7 @@ dependencies:
   - beautifulsoup4
   - vtools3
   - numba
-  - pandas
+  - pandas<3 # temporary pinning due to compatibility issues with other dependencies vtools3 etc.
   - scipy
   - xarray
   - schimpy # remove this!

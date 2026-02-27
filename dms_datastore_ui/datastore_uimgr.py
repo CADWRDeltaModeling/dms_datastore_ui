@@ -61,7 +61,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             geometry=gpd.points_from_xy(inventory.x, inventory.y, crs="EPSG:26910"),
             crs="EPSG:26910",
         )
-        return inventory
+        return inventory.dropna()
 
     def get_time_range(self, dfcat):
         """Convert year integers to datetime objects for CalendarDateRange parameter"""

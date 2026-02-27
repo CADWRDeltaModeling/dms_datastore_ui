@@ -359,7 +359,7 @@ class StationInventoryExplorer(param.Parameterized):
             ("Unit", "@unit"),
         ]
         hover = HoverTool(tooltips=tooltips)
-        self.current_station_inventory = self.station_datastore.df_station_inventory
+        self.current_station_inventory = self.station_datastore.df_station_inventory.dropna(subset=["lat", "lon"])
         self.map_crs = cartopy.crs.epsg(26910)
         self.map_station_inventory = gv.Points(
             self.current_station_inventory,
