@@ -31,9 +31,8 @@ dependencies:
   - pyparsing
   - kiwisolver
   - dms-datastore
-  - pydelmod
-#  - pip:
-#     - -e git+https://github.com/CADWRDeltaModeling/dms_datastore_ui#egg=dms_datastore_ui
+  - pip:
+    - dvue @ git+https://github.com/CADWRDeltaModeling/dvue
 # alternatively if you want to develop ...
 # git clone this repo
 # conda env create -f environment.yml

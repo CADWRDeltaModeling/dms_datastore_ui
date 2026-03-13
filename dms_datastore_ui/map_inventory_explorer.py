@@ -1,4 +1,6 @@
 import os
+import tempfile
+import functools
 from pathlib import Path
 from datetime import datetime, timedelta
 from io import StringIO
@@ -24,6 +26,31 @@ import param
 
 #!pip install diskcache
 import diskcache
+
+
+class _MemoryCache:
+    """Simple in-memory memoization cache with the same interface used from diskcache.Cache."""
+
+    def __init__(self):
+        self._store = {}
+
+    def memoize(self):
+        store = self._store
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                key = (args, tuple(sorted(kwargs.items())))
+                if key not in store:
+                    store[key] = func(*args, **kwargs)
+                return store[key]
+
+            return wrapper
+
+        return decorator
+
+    def clear(self):
+        self._store.clear()
 import dms_datastore
 from dms_datastore.read_ts import read_ts, read_flagged
 from dms_datastore_ui import data_screener, flag_editor
@@ -148,10 +175,22 @@ class StationDatastore(param.Parameterized):
         self.dir = os.path.normpath(dir)
         if not os.path.exists(self.dir):
             raise Exception(f"Directory {self.dir} does not exist")
-        self.cache = diskcache.Cache(
-            "cache_" + self.last_part_path(self.dir), size_limit=1e11
-        )
-        self.caching_read_ts = self.cache.memoize()(read_ts)
+        try:
+            self.cache = diskcache.Cache(
+                "cache_" + self.last_part_path(self.dir), size_limit=1e11
+            )
+        except Exception as e:
+            print(f"Error initializing cache at local directory: {e}")
+            try:
+                tmp_cache_dir = os.path.join(
+                    tempfile.gettempdir(), "cache_" + self.last_part_path(self.dir)
+                )
+                self.cache = diskcache.Cache(tmp_cache_dir, size_limit=1e11)
+                print(f"Using temp directory cache: {tmp_cache_dir}")
+            except Exception as e2:
+                print(f"Error initializing temp directory cache: {e2}, falling back to memory cache")
+                self.cache = _MemoryCache()
+        self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache else read_ts
         # check that repo_levels are valid and set default to first valid
         valid_repo_levels = []
         for repo_level in self.param.repo_level.objects:

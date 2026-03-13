@@ -33,7 +33,7 @@ template = pn.template.VanillaTemplate(
     main=[main_panel],
     sidebar_width=650,
     header_color="blue",
-    logo="https://sciencetracker.deltacouncil.ca.gov/themes/custom/basic/images/logos/DWR_Logo.png",
+    logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
 )
 
 
@@ -61,7 +61,7 @@ def load_explorer():
 
 def load_dataui():
     from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr
-    from pydelmod.dvue.dataui import DataUI
+    from dvue.dataui import DataUI
     import cartopy.crs as ccrs
 
     dir = "continuous"
@@ -87,10 +87,10 @@ def load_dataui():
 
 
 def handle_hash_change(event):
-    if event.new == "#dataui":
-        load_dataui()
-    else:
+    if event.new == "#oldui":
         load_explorer()
+    else:
+        load_dataui()
 
 
 # Initialize the app based on current location hash
@@ -102,10 +102,10 @@ def init_app():
     location.param.watch(handle_hash_change, "hash")
 
     # Initial load based on current hash
-    if location.hash == "dataui":
-        load_dataui()
-    else:
+    if location.hash == "#oldui":
         load_explorer()
+    else:
+        load_dataui()
 
 
 pn.state.onload(init_app)

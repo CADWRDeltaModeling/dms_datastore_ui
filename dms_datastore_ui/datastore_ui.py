@@ -1,7 +1,7 @@
 # %%
 import click
 import geopandas as gpd
-from pydelmod.dvue.dataui import DataUI
+from dvue.dataui import DataUI
 from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr
 
 

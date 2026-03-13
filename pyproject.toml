@@ -44,6 +44,7 @@ dependencies = [
     "vtools3",
     "numba",
     "dms-datastore",
+    "dvue @ git+https://github.com/CADWRDeltaModeling/dvue",
 ]
 
 [project.urls]

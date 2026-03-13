@@ -1,18 +1,97 @@
 import param
 import panel as pn
 import pandas as pd
-from pydelmod.dvue.actions import (
+from shapely.geometry import Point
+from dvue.actions import (
     PlotAction,
     DownloadDataAction,
     PermalinkAction,
     DownloadDataCatalogAction,
 )
-from pydelmod.dvue.dataui import DataUIManager
-from pydelmod.dvue.tsdataui import TimeSeriesDataUIManager
+from dvue.dataui import DataUIManager
+from dvue.tsdataui import TimeSeriesDataUIManager
+from dvue.catalog import (
+    DataReferenceReader,
+    DataReference,
+    CatalogBuilder,
+    DataCatalog,
+)
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 from dms_datastore_ui.map_inventory_explorer import to_uniform_units
 import holoviews as hv
 import geopandas as gpd
+
+
+class DatastoreReader(DataReferenceReader):
+    """Reads time series data from a :class:`StationDatastore`.
+
+    Uses the ``repo_level`` and ``filename`` attributes of the calling
+    :class:`~dvue.catalog.DataReference` to locate and load the file via the
+    datastore's on-disk cache.
+
+    A single ``DatastoreReader`` instance is shared across all
+    :class:`~dvue.catalog.DataReference` objects that point to the same
+    datastore directory (flyweight pattern).
+    """
+
+    def __init__(self, datastore: StationDatastore) -> None:
+        self._datastore = datastore
+
+    def load(self, **attributes) -> pd.DataFrame:
+        repo_level = attributes["repo_level"]
+        filename = attributes["filename"]
+        return self._datastore.get_data(repo_level, filename)
+
+    def __repr__(self) -> str:
+        return f"DatastoreReader(dir={self._datastore.dir!r})"
+
+
+class DatastoreCatalogBuilder(CatalogBuilder):
+    """Builds :class:`~dvue.catalog.DataReference` objects from a :class:`StationDatastore`.
+
+    Each row in the merged station/dataset inventory becomes one
+    ``DataReference``.  The ``repo_level`` and ``filename`` attributes tell
+    :class:`DatastoreReader` exactly where to read the time series on demand.
+
+    In-memory caching on the ``DataReference`` is disabled (``cache=False``)
+    because the :class:`StationDatastore` already maintains an on-disk
+    LRU cache via *diskcache*.
+    """
+
+    def can_handle(self, source) -> bool:
+        return isinstance(source, StationDatastore)
+
+    def build(self, source: StationDatastore):
+        reader = DatastoreReader(source)
+        inventory = source.df_station_inventory.merge(source.df_dataset_inventory)
+        repo_level = source.repo_level[0]
+        refs = []
+        for _, row in inventory.iterrows():
+            subloc = row["subloc"] if pd.notna(row["subloc"]) and row["subloc"] else ""
+            ref = DataReference(
+                reader,
+                name=row["filename"],
+                cache=False,  # StationDatastore already caches on disk
+                repo_level=repo_level,
+                filename=row["filename"],
+                station_id=row["station_id"],
+                subloc=subloc,
+                station_name=row["name"],
+                param=row["param"],
+                unit=row["unit"],
+                min_year=row["min_year"],
+                max_year=row["max_year"],
+                agency=row["agency"],
+                agency_id_dbase=row["agency_id_dbase"],
+                x=row["x"],
+                y=row["y"],
+                geometry=Point(row["x"], row["y"]),
+            )
+            refs.append(ref)
+        return refs
+
+    def __repr__(self) -> str:
+        return "DatastoreCatalogBuilder()"
 
 
 class DatastoreUIMgr(TimeSeriesDataUIManager):
@@ -30,12 +109,33 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     def __init__(self, dir, repo_level="screened", **kwargs):
         self.dir = dir
         self.datastore = StationDatastore(dir)
+        # Build catalog before super().__init__() because the parent calls
+        # get_data_catalog() during initialisation.
+        self._catalog = (
+            DataCatalog(crs="EPSG:26910")
+            .add_builder(DatastoreCatalogBuilder())
+            .add_source(self.datastore)
+        )
         kwargs["filename_column"] = "filename"
         # Call the parent class's __init__ method with kwargs
         super().__init__(**kwargs)
         self.color_cycle_column = "station_id"
         self.dashed_line_cycle_column = "subloc"
         self.marker_cycle_column = "param"
+
+    # ------------------------------------------------------------------
+    # DataCatalog integration
+    # ------------------------------------------------------------------
+
+    @property
+    def data_catalog(self):
+        """Expose the underlying :class:`~dvue.catalog.DataCatalog`.
+
+        :meth:`~dvue.dataui.DataProvider.get_data_catalog` automatically
+        delegates to this, returning a :class:`~geopandas.GeoDataFrame`
+        (because references carry a ``geometry`` attribute).
+        """
+        return self._catalog
 
     def get_widgets(self):
         widget_tabs = super().get_widgets()
@@ -49,19 +149,6 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             )
         )
         return widget_tabs
-
-    # data related methods
-    def get_data_catalog(self):
-        """return a dataframe or geodataframe with the data catalog"""
-        inventory = self.datastore.df_station_inventory
-        inventory = inventory.merge(self.datastore.df_dataset_inventory)
-        # use lon,lat to convert inventory to geodataframe
-        inventory = gpd.GeoDataFrame(
-            inventory,
-            geometry=gpd.points_from_xy(inventory.x, inventory.y, crs="EPSG:26910"),
-            crs="EPSG:26910",
-        )
-        return inventory.dropna()
 
     def get_time_range(self, dfcat):
         """Convert year integers to datetime objects for CalendarDateRange parameter"""
@@ -87,7 +174,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             "subloc": "5%",
             # "lat": "10%",
             # "lon": "10%",
-            "name": "25%",
+            "station_name": "25%",
             "min_year": "5%",
             "max_year": "5%",
             "agency": "5%",
@@ -100,7 +187,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         filters = {
             "station_id": {"type": "input", "func": "like"},
             "subloc": {"type": "input", "func": "like"},
-            "name": {"type": "input", "func": "like"},
+            "station_name": {"type": "input", "func": "like"},
             "param": {
                 "type": "list",
                 "valuesLookup": True,
@@ -123,22 +210,23 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         return False  # only regular time series data in example
 
     def get_data_for_time_range(self, r, time_range):
-        repo_level = self.datastore.repo_level[0]  # Use first repo level by default
-        filename = r["filename"]
+        # Look up the DataReference for this row; keep repo_level in sync
+        # with the datastore's current selection.
+        ref = self.data_catalog.get(r["filename"])
+        current_repo_level = self.datastore.repo_level[0]
+        if ref.get_attribute("repo_level") != current_repo_level:
+            ref.set_attribute("repo_level", current_repo_level)
 
+        unit = r["unit"]
+        result_data = pd.DataFrame()
         try:
-            ts_data = self.datastore.get_data(repo_level, filename)
+            ts_data = ref.getData()
             if self.unit_conversion:
-                ts_data, unit = to_uniform_units(ts_data, r["param"], r["unit"])
-                r["unit"] = unit  # update unit in record
-            param = r["param"]
-            unit = r["unit"]
-            station_id = r["station_id"]
-
+                ts_data, unit = to_uniform_units(ts_data, r["param"], unit)
             result_data = ts_data[slice(time_range[0], time_range[1])]
         except Exception as e:
             print(
-                f"Error retrieving data for {station_id}/{param} using {filename}: {e}"
+                f"Error retrieving data for {r['station_id']}/{r['param']} using {r['filename']}: {e}"
             )
 
         return (
@@ -156,20 +244,12 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         return [
             ("Station ID", "@station_id"),
             ("SubLoc", "@subloc"),
-            ("Name", "@name"),
+            ("Name", "@station_name"),
             ("Years", "@min_year to @max_year"),
             ("Agency", "@agency - @agency_id_dbase"),
             ("Parameter", "@param"),
             ("Unit", "@unit"),
         ]
-
-    def get_map_color_columns(self):
-        """return the columns that can be used to color the map"""
-        return ["param"]
-
-    def get_map_marker_columns(self):
-        """return the columns that can be used to color the map"""
-        return ["param", "agency"]
 
     def get_map_color_columns(self):
         """return the columns that can be used to color the map"""
@@ -230,7 +310,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
 # dir = "y:/repo/continuous"
 # uimgr = DatastoreUIMgr(dir)
-# from pydelmod.dvue import dataui
+# from dvue import dataui
 
 # ui = dataui.DataUI(uimgr, station_id_column="station_id")
 # ui.create_view(title="DMS Datastore Data UI").servable()
