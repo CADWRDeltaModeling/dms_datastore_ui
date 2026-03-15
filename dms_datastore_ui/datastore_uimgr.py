@@ -18,6 +18,11 @@ from dvue.catalog import (
 )
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 from dms_datastore_ui.map_inventory_explorer import to_uniform_units
+from dms_datastore_ui.datastore_actions import (
+    DataScreenerAction,
+    FlagEditorAction,
+    GapVisualizerAction,
+)
 import holoviews as hv
 import geopandas as gpd
 
@@ -95,15 +100,29 @@ class DatastoreCatalogBuilder(CatalogBuilder):
 
 
 class DatastoreUIMgr(TimeSeriesDataUIManager):
+    show_math_ref_editor = param.Boolean(default=False)
     repo_level = param.ListSelector(
         objects=["screened"],
         default=["screened"],
-        doc="repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)",
+        doc="Repository level (sub-directory) under which data is found. Ctrl+click to select multiple.",
     )
 
     unit_conversion = param.Boolean(
         default=False,
         doc="Convert units to standard units (e.g. feet to meters, cfs to cms)",
+    )
+
+    parameter_type = param.ListSelector(
+        objects=["all"],
+        default=["all"],
+        doc="Filter map and table to these parameter types. Ctrl+click to select multiple, or choose 'all'.",
+    )
+
+    year_range = param.Range(
+        default=(2000, 2010),
+        step=1,
+        bounds=(2000, 2010),
+        doc="Filter map to stations whose data overlaps this year range.",
     )
 
     def __init__(self, dir, repo_level="screened", **kwargs):
@@ -117,11 +136,41 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             .add_source(self.datastore)
         )
         kwargs["filename_column"] = "filename"
+        # Sync repo_level choices from the validated datastore objects.
+        valid_levels = self.datastore.param.repo_level.objects
+        self.param.repo_level.objects = valid_levels
+        self.repo_level = valid_levels[:1]  # default to first valid level
+        # Sync parameter_type choices from the datastore inventory.
+        unique_params = list(self.datastore.unique_params)
+        self.param.parameter_type.objects = ["all"] + unique_params
+        # Sync year_range bounds from inventory.
+        min_yr = int(self.datastore.min_year)
+        max_yr = int(self.datastore.max_year)
+        self.param.year_range.bounds = (min_yr, max_yr)
+        self.year_range = (min_yr, max_yr)
         # Call the parent class's __init__ method with kwargs
         super().__init__(**kwargs)
         self.color_cycle_column = "station_id"
         self.dashed_line_cycle_column = "subloc"
         self.marker_cycle_column = "param"
+
+    @param.depends("repo_level", watch=True)
+    def _sync_repo_level(self):
+        """Keep the StationDatastore in sync when repo_level changes."""
+        self.datastore.repo_level = self.repo_level
+
+    @param.depends("parameter_type", "year_range", watch=True)
+    def _sync_map_query(self):
+        """Push a pandas query string to DataUI when map filters change."""
+        if not hasattr(self, "_dataui"):
+            return
+        parts = []
+        if self.parameter_type and "all" not in self.parameter_type:
+            param_list = ", ".join(f'"{p}"' for p in self.parameter_type)
+            parts.append(f"param in [{param_list}]")
+        min_yr, max_yr = self.year_range
+        parts.append(f"min_year <= {max_yr} and max_year >= {min_yr}")
+        self._dataui.query = " and ".join(parts)
 
     # ------------------------------------------------------------------
     # DataCatalog integration
@@ -139,16 +188,52 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
     def get_widgets(self):
         widget_tabs = super().get_widgets()
-        # add specific widgets for transforming data for unit conversion
+        # "Data" tab: repo_level selector + unit conversion toggle
         widget_tabs.append(
             (
-                "Unit Conversion",
+                "Data",
                 pn.WidgetBox(
+                    self.param.repo_level,
                     self.param.unit_conversion,
                 ),
             )
         )
         return widget_tabs
+
+    def get_map_option_widgets(self):
+        """Extra widgets injected into the Map Options sidebar tab."""
+        return pn.WidgetBox(
+            "Filter Map",
+            self.param.parameter_type,
+            self.param.year_range,
+        )
+
+    def get_data_actions(self):
+        actions = super().get_data_actions()
+        actions.extend([
+            dict(
+                name="Data Screener",
+                button_type="primary",
+                icon="table",
+                action_type="display",
+                callback=DataScreenerAction().callback,
+            ),
+            dict(
+                name="Flag Editor",
+                button_type="primary",
+                icon="flag",
+                action_type="display",
+                callback=FlagEditorAction().callback,
+            ),
+            dict(
+                name="Gap Visualizer",
+                button_type="primary",
+                icon="chart-bar",
+                action_type="display",
+                callback=GapVisualizerAction().callback,
+            ),
+        ])
+        return actions
 
     def get_time_range(self, dfcat):
         """Convert year integers to datetime objects for CalendarDateRange parameter"""
@@ -211,9 +296,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
     def get_data_for_time_range(self, r, time_range):
         # Look up the DataReference for this row; keep repo_level in sync
-        # with the datastore's current selection.
+        # with the manager's current selection.
         ref = self.data_catalog.get(r["filename"])
-        current_repo_level = self.datastore.repo_level[0]
+        current_repo_level = self.repo_level[0] if self.repo_level else "screened"
         if ref.get_attribute("repo_level") != current_repo_level:
             ref.set_attribute("repo_level", current_repo_level)
 
