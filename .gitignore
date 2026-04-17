@@ -77,3 +77,4 @@ target/
 # pyenv python configuration file
 .python-version
 cache_continuous/cache.db
+dms_datastore_ui/_version.py
