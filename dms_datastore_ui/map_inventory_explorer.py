@@ -217,6 +217,13 @@ class StationDatastore(param.Parameterized):
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file)
         )
+        # normalize column names changed in dms_datastore inventory.py (backward-compatible)
+        self.df_dataset_inventory = self.df_dataset_inventory.rename(
+            columns={
+                "agency_id_registry": "agency_id_dbase",
+                "file_pattern": "filename",
+            }
+        )
         # replace nan with empty string for column subloc
         self.df_dataset_inventory["subloc"] = self.df_dataset_inventory[
             "subloc"
@@ -374,6 +381,16 @@ class StationInventoryExplorer(param.Parameterized):
         doc='Query to filter stations. See <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.query.html">Pandas Query</a> for details. E.g. max_year <= 2023',
     )
 
+    def _resolve_map_coordinates(self, df):
+        """Return (dropna subset, kdims, map CRS) using UTM Zone 10N x/y coordinates."""
+        cols = set(df.columns)
+        if not {"x", "y"}.issubset(cols):
+            raise KeyError(
+                "Station inventory is missing required UTM coordinate columns x and y. "
+                f"Available columns: {sorted(df.columns.tolist())}"
+            )
+        return ["x", "y"], ["x", "y"], cartopy.crs.epsg(26910)
+
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
         self.station_datastore = pn.state.as_cached(
@@ -398,11 +415,15 @@ class StationInventoryExplorer(param.Parameterized):
             ("Unit", "@unit"),
         ]
         hover = HoverTool(tooltips=tooltips)
-        self.current_station_inventory = self.station_datastore.df_station_inventory.dropna(subset=["lat", "lon"])
-        self.map_crs = cartopy.crs.epsg(26910)
+        self._coord_dropna_cols, self._map_kdims, self.map_crs = self._resolve_map_coordinates(
+            self.station_datastore.df_station_inventory
+        )
+        self.current_station_inventory = self.station_datastore.df_station_inventory.dropna(
+            subset=self._coord_dropna_cols
+        )
         self.map_station_inventory = gv.Points(
             self.current_station_inventory,
-            kdims=["x", "y"],
+            kdims=self._map_kdims,
             crs=self.map_crs,
         ).opts(
             size=6,
@@ -831,6 +852,8 @@ class StationInventoryExplorer(param.Parameterized):
             self.display_area.loading = False
 
     def update_data_table(self, dfs):
+        # lat/lon are optional metadata fields; hide them when present.
+        display_df = dfs.drop(columns=["lat", "lon"], errors="ignore")
         # if attribute display_table is not set, create it
         if not hasattr(self, "display_table"):
             column_width_map = {
@@ -846,10 +869,15 @@ class StationInventoryExplorer(param.Parameterized):
                 "param": "10%",
                 "unit": "10%",
             }
+            column_width_map = {
+                col: width
+                for col, width in column_width_map.items()
+                if col in display_df.columns
+            }
             from bokeh.models.widgets.tables import NumberFormatter
 
             self.display_table = pn.widgets.Tabulator(
-                dfs,
+                display_df,
                 disabled=True,
                 widths=column_width_map,
                 show_index=False,
@@ -915,7 +943,7 @@ class StationInventoryExplorer(param.Parameterized):
                 gspec
             )  # fails with object of type 'GridSpec' has no len()
         else:
-            self.display_table.value = dfs
+            self.display_table.value = display_df
 
         return self.plots_panel
 
@@ -933,7 +961,7 @@ class StationInventoryExplorer(param.Parameterized):
         query = query.strip()
         if len(query) > 0:
             dfs = dfs.query(query)
-        self.current_station_inventory = dfs
+        self.current_station_inventory = dfs.dropna(subset=self._coord_dropna_cols)
         self.map_station_inventory.data = self.current_station_inventory
         return self.tmap * self.map_station_inventory.opts(
             color=dim(color_category),
