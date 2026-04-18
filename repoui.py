@@ -15,8 +15,21 @@ import sys
 from dms_datastore_ui import fullscreen
 import param
 import holoviews as hv
+import geoviews as gv
 
 hv.extension("bokeh")
+gv.extension("bokeh")
+
+# Pre-import the heavy UI modules NOW (before any Panel session starts) so that
+# their module-level hv/gv/pn.extension() calls happen here, not inside a live
+# Bokeh session.  Importing them lazily inside load_explorer()/load_dataui()
+# would re-run those extension calls mid-session and reset pn.state.curdoc,
+# causing the main-area spinner to persist on first load.
+import dms_datastore_ui.map_inventory_explorer  # noqa: F401 – triggers gv/hv extension init
+from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr  # noqa: F401
+from dvue.dataui import DataUI  # noqa: F401 – triggers gv/hv extension init
+import cartopy.crs as ccrs
+
 main_panel = pn.Column(
     pn.indicators.LoadingSpinner(
         value=True, color="primary", size=50, name="Loading..."
@@ -38,74 +51,86 @@ template = pn.template.VanillaTemplate(
 
 
 def load_explorer():
-    import dms_datastore_ui.map_inventory_explorer as mie
+    explorer = dms_datastore_ui.map_inventory_explorer.StationInventoryExplorer("continuous")
+    view = explorer.create_view()
 
-    dir = "continuous"
-    explorer = mie.StationInventoryExplorer(dir)
-    te = explorer.create_view()
+    sidebar_items = list(view.sidebar)
+    main_items = list(view.main)
+    modal_items = list(view.modal)
+    view.sidebar.clear()
+    view.main.clear()
+    view.modal.clear()
 
-    # Clear existing content first
-    main_panel.clear()
-    sidebar_panel.clear()
+    sidebar_panel.objects = sidebar_items
+    main_panel.objects = main_items
 
-    for obj in te.sidebar.objects:
-        sidebar_panel.append(obj)
-
-    # Add objects individually to ensure proper reactivity
-    for obj in te.main.objects:
-        main_panel.append(pn.panel(obj))
-
-    # Add the disclaimer text to the modal
-    template.modal.append(explorer.get_disclaimer_text())
+    template.modal.clear()
+    for item in modal_items:
+        template.modal.append(item)
 
 
 def load_dataui():
-    from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr
-    from dvue.dataui import DataUI
-    import cartopy.crs as ccrs
-
-    dir = "continuous"
-    uimgr = DatastoreUIMgr(dir)
+    uimgr = DatastoreUIMgr("continuous")
     ui = DataUI(uimgr, crs=ccrs.epsg(26910))
-    view = ui.create_view()
+    ui_template = ui.create_view()
 
-    # Clear existing content first
-    main_panel.clear()
-    sidebar_panel.clear()
+    sidebar_items = list(ui_template.sidebar)
+    main_items = list(ui_template.main)
+    modal_items = list(ui_template.modal)
+    ui_template.sidebar.clear()
+    ui_template.main.clear()
+    ui_template.modal.clear()
 
-    # Add the DataUI components to the template
-    if hasattr(view, "sidebar") and view.sidebar is not None:
-        for obj in view.sidebar.objects:
-            sidebar_panel.append(obj)
+    sidebar_panel.objects = sidebar_items
+    main_panel.objects = main_items
 
-    if hasattr(view, "main") and view.main is not None:
-        for obj in view.main.objects:
-            main_panel.append(obj)
-    else:
-        # If no specific main panel structure, add the entire view
-        main_panel.append(pn.panel(view))
+    template.modal.clear()
+    for item in modal_items:
+        template.modal.append(item)
 
 
 def handle_hash_change(event):
-    if event.new == "#oldui":
-        load_explorer()
-    else:
+    if event.new == "#newui":
         load_dataui()
+    else:
+        load_explorer()  # plain URL or #oldui both show the explorer
 
 
 # Initialize the app based on current location hash
 def init_app():
-    # Access location via pn.state.location
+    # URL fragments are client-side only — not sent in the HTTP request.
+    # Panel syncs location.hash via the WebSocket *after* onload fires.
+    # For "#newui" this changes "" → "#newui", triggering the watcher below.
+    # For a plain URL the hash stays "" and Panel may skip setting it (no
+    # param event fired), so we add a one-shot fallback callback that runs
+    # ~300 ms later — by then the WebSocket sync is complete and
+    # location.hash has its definitive value.
+
     location = pn.state.location
+    has_loaded = [False]  # guards the fallback timer only, not the watcher
 
-    # Set up the hash watcher
-    location.param.watch(handle_hash_change, "hash")
+    def _on_hash_change(event):
+        # Fires for both the initial browser→Panel sync AND user-edited URL
+        # changes, so never guard this with has_loaded.
+        has_loaded[0] = True
+        if event.new == "#newui":
+            load_dataui()
+        else:
+            load_explorer()
 
-    # Initial load based on current hash
-    if location.hash == "#oldui":
-        load_explorer()
-    else:
-        load_dataui()
+    location.param.watch(_on_hash_change, "hash")
+
+    # Fallback: fires once after 300 ms for plain URLs where the hash watcher
+    # never triggers (location.hash stays "" and Panel skips the param update).
+    def _fallback():
+        if not has_loaded[0]:
+            has_loaded[0] = True
+            if location.hash == "#newui":
+                load_dataui()
+            else:
+                load_explorer()
+
+    pn.state.add_periodic_callback(_fallback, period=300, count=1)
 
 
 pn.state.onload(init_app)

@@ -32,7 +32,7 @@ dependencies:
   - kiwisolver
   - dms-datastore
   - pip:
-    - dvue @ git+https://github.com/CADWRDeltaModeling/dvue
+    - git+https://github.com/CADWRDeltaModeling/dvue.git#egg=dvue
 # alternatively if you want to develop ...
 # git clone this repo
 # conda env create -f environment.yml

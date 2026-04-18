@@ -1,3 +1,4 @@
+import os
 import param
 import panel as pn
 import pandas as pd
@@ -16,6 +17,7 @@ from dvue.catalog import (
     CatalogBuilder,
     DataCatalog,
 )
+from dms_datastore.read_ts import read_ts
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 from dms_datastore_ui.map_inventory_explorer import to_uniform_units
 from dms_datastore_ui.datastore_actions import (
@@ -27,38 +29,97 @@ import holoviews as hv
 import geopandas as gpd
 
 
-class DatastoreReader(DataReferenceReader):
-    """Reads time series data from a :class:`StationDatastore`.
+class DatastoreFilepathReader(DataReferenceReader):
+    """Reads time series data from an absolute ``filepath`` attribute.
 
-    Uses the ``repo_level`` and ``filename`` attributes of the calling
-    :class:`~dvue.catalog.DataReference` to locate and load the file via the
-    datastore's on-disk cache.
-
-    A single ``DatastoreReader`` instance is shared across all
-    :class:`~dvue.catalog.DataReference` objects that point to the same
-    datastore directory (flyweight pattern).
+    This reader is standalone and does not depend on :class:`StationDatastore`
+    state. A single instance can be shared across many references.
     """
 
-    def __init__(self, datastore: StationDatastore) -> None:
-        self._datastore = datastore
-
     def load(self, **attributes) -> pd.DataFrame:
-        repo_level = attributes["repo_level"]
-        filename = attributes["filename"]
-        return self._datastore.get_data(repo_level, filename)
+        filepath = attributes.get("filepath")
+        if not filepath:
+            raise KeyError("DatastoreFilepathReader requires a 'filepath' attribute")
+        return read_ts(filepath)
 
     def __repr__(self) -> str:
-        return f"DatastoreReader(dir={self._datastore.dir!r})"
+        return "DatastoreFilepathReader()"
+
+
+class DatastoreDataReference(DataReference):
+    """Datastore-specific :class:`~dvue.catalog.DataReference`.
+
+    References are standalone by carrying an absolute ``filepath`` and the
+    metadata required by filtering, map display, and mixed-catalog workflows.
+    """
+
+    def __init__(self, reader=None, name: str = "", cache: bool = False, **attributes):
+        if not attributes.get("filepath"):
+            raise ValueError("DatastoreDataReference requires a non-empty 'filepath'")
+        if reader is None:
+            reader = DatastoreFilepathReader()
+        super().__init__(reader=reader, name=name, cache=cache, **attributes)
+
+    @classmethod
+    def from_inventory_row(cls, row, repo_dir, repo_level, reader=None):
+        filename = row["filename"]
+        subloc = row["subloc"] if pd.notna(row["subloc"]) and row["subloc"] else ""
+        filepath = os.path.join(repo_dir, repo_level, filename)
+        return cls(
+            reader=reader,
+            name=filename,
+            cache=False,
+            filepath=filepath,
+            repo_level=repo_level,
+            filename=filename,
+            station_id=row["station_id"],
+            subloc=subloc,
+            station_name=row["name"],
+            param=row["param"],
+            unit=row["unit"],
+            min_year=row["min_year"],
+            max_year=row["max_year"],
+            agency=row["agency"],
+            agency_id_dbase=row["agency_id_dbase"],
+            x=row["x"],
+            y=row["y"],
+            geometry=Point(row["x"], row["y"]),
+        )
+
+    @property
+    def filepath(self):
+        return self.get_attribute("filepath")
+
+    @property
+    def station_id(self):
+        return self.get_attribute("station_id")
+
+    @property
+    def subloc(self):
+        return self.get_attribute("subloc")
+
+    @property
+    def parameter(self):
+        """Return the parameter/variable name (e.g. 'flow', 'temp')."""
+        return self.get_attribute("param")
+
+    @property
+    def unit(self):
+        return self.get_attribute("unit")
+
+    @property
+    def geometry(self):
+        return self.get_attribute("geometry")
 
 
 class DatastoreCatalogBuilder(CatalogBuilder):
-    """Builds :class:`~dvue.catalog.DataReference` objects from a :class:`StationDatastore`.
+    """Builds :class:`DatastoreDataReference` objects from a :class:`StationDatastore`.
 
     Each row in the merged station/dataset inventory becomes one
-    ``DataReference``.  The ``repo_level`` and ``filename`` attributes tell
-    :class:`DatastoreReader` exactly where to read the time series on demand.
+    ``DatastoreDataReference``. A shared :class:`DatastoreFilepathReader`
+    lazily loads each row's file using its absolute ``filepath`` attribute.
 
-    In-memory caching on the ``DataReference`` is disabled (``cache=False``)
+    In-memory caching on each reference is disabled (``cache=False``)
     because the :class:`StationDatastore` already maintains an on-disk
     LRU cache via *diskcache*.
     """
@@ -67,30 +128,19 @@ class DatastoreCatalogBuilder(CatalogBuilder):
         return isinstance(source, StationDatastore)
 
     def build(self, source: StationDatastore):
-        reader = DatastoreReader(source)
-        inventory = source.df_station_inventory.merge(source.df_dataset_inventory)
+        reader = DatastoreFilepathReader()
+        # Merge station inventory with dataset inventory on common columns.
+        # df_dataset_inventory has additional columns like filename.
+        merge_keys = ["station_id", "subloc", "name", "unit", "param", "min_year", "max_year", "agency", "agency_id_dbase", "x", "y"]
+        inventory = source.df_dataset_inventory  # dataset inventory already includes all needed columns
         repo_level = source.repo_level[0]
         refs = []
         for _, row in inventory.iterrows():
-            subloc = row["subloc"] if pd.notna(row["subloc"]) and row["subloc"] else ""
-            ref = DataReference(
-                reader,
-                name=row["filename"],
-                cache=False,  # StationDatastore already caches on disk
+            ref = DatastoreDataReference.from_inventory_row(
+                row=row,
+                repo_dir=source.dir,
                 repo_level=repo_level,
-                filename=row["filename"],
-                station_id=row["station_id"],
-                subloc=subloc,
-                station_name=row["name"],
-                param=row["param"],
-                unit=row["unit"],
-                min_year=row["min_year"],
-                max_year=row["max_year"],
-                agency=row["agency"],
-                agency_id_dbase=row["agency_id_dbase"],
-                x=row["x"],
-                y=row["y"],
-                geometry=Point(row["x"], row["y"]),
+                reader=reader,
             )
             refs.append(ref)
         return refs
