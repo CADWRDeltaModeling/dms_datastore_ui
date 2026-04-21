@@ -33,7 +33,8 @@ import cartopy.crs as ccrs
 main_panel = pn.Column(
     pn.indicators.LoadingSpinner(
         value=True, color="primary", size=50, name="Loading..."
-    )
+    ),
+    sizing_mode="stretch_both",
 )
 sidebar_panel = pn.Column(
     pn.indicators.LoadingSpinner(
@@ -115,6 +116,8 @@ def init_app():
         has_loaded[0] = True
         if event.new == "#newui":
             load_dataui()
+        elif event.new in ("#combined", "#table", "#display"):
+            pass  # DataUI's own setup_location_sync watcher handles these
         else:
             load_explorer()
 

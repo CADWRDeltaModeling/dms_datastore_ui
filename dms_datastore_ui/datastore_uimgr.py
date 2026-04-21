@@ -10,7 +10,7 @@ from dvue.actions import (
     DownloadDataCatalogAction,
 )
 from dvue.dataui import DataUIManager
-from dvue.tsdataui import TimeSeriesDataUIManager
+from dvue.tsdataui import TimeSeriesDataUIManager, TimeSeriesPlotAction
 from dvue.catalog import (
     DataReferenceReader,
     DataReference,
@@ -149,6 +149,43 @@ class DatastoreCatalogBuilder(CatalogBuilder):
         return "DatastoreCatalogBuilder()"
 
 
+class DatastorePlotAction(TimeSeriesPlotAction):
+    """TimeSeriesPlotAction with datastore-specific curve labels and titles."""
+
+    @staticmethod
+    def _append_value(new_value, value):
+        if new_value not in value:
+            value += f'{", " if value else ""}{new_value}'
+        return value
+
+    def create_curve(self, data, row, unit, file_index=""):
+        subloc = (row.get("subloc") or "") if hasattr(row, "get") else ""
+        station_id = row["station_id"]
+        param = row["param"]
+        station_label = f"{station_id}@{subloc}" if subloc else station_id
+        crvlabel = f"{station_label}/{param} ({unit})"
+        ylabel = f"{param} ({unit})"
+        crv = hv.Curve(data.iloc[:, [0]], label=crvlabel).redim(value=crvlabel)
+        return crv.opts(
+            xlabel="Time",
+            ylabel=ylabel,
+            responsive=True,
+            active_tools=["wheel_zoom"],
+            tools=["hover"],
+        )
+
+    def append_to_title_map(self, title_map, group_key, row):
+        # value = [params, station_ids, unit]
+        value = title_map.get(group_key, ["", "", str(group_key)])
+        value[0] = self._append_value(row["param"], value[0])
+        value[1] = self._append_value(row["station_id"], value[1])
+        title_map[group_key] = value
+
+    def create_title(self, title_info) -> str:
+        params, station_ids, unit = title_info
+        return f"{params} ({unit}) — {station_ids}"
+
+
 class DatastoreUIMgr(TimeSeriesDataUIManager):
     show_math_ref_editor = param.Boolean(default=False)
     repo_level = param.ListSelector(
@@ -285,6 +322,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         ])
         return actions
 
+    def _make_plot_action(self):
+        return DatastorePlotAction()
+
     def get_time_range(self, dfcat):
         """Convert year integers to datetime objects for CalendarDateRange parameter"""
         import datetime
@@ -302,6 +342,13 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     # display related support for tables
     def get_table_columns(self):
         return list(self.get_table_column_width_map().keys()) + ["filename"]
+
+    def get_data_reference(self, row):
+        # The display table includes 'filename' but may not include 'name'.
+        # For datastore refs, ref.name == filename.  For mixed catalogs the
+        # 'name' column (present when the full catalog DF is used) is preferred.
+        key = row.get("name") if "name" in row.index else row["filename"]
+        return self._catalog.get(key)
 
     def get_table_column_width_map(self):
         return {
@@ -345,9 +392,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         return False  # only regular time series data in example
 
     def get_data_for_time_range(self, r, time_range):
-        # Look up the DataReference for this row; keep repo_level in sync
-        # with the manager's current selection.
-        ref = self.data_catalog.get(r["filename"])
+        # Look up the DataReference for this row using the catalog's universal
+        # key (ref.name). For datastore refs name==filename; for any other ref
+        # type in a mixed catalog name is always present after reset_index().
+        ref = self.data_catalog.get(r["name"])
         current_repo_level = self.repo_level[0] if self.repo_level else "screened"
         if ref.get_attribute("repo_level") != current_repo_level:
             ref.set_attribute("repo_level", current_repo_level)
@@ -408,39 +456,6 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         from .map_inventory_explorer import param_to_marker_map
 
         return {"param": param_to_marker_map}
-
-    def create_curve(self, df, r, unit, file_index=None):
-        file_index_label = f"{self.repo_level}:" if file_index is not None else ""
-        crvlabel = f'{file_index_label}{r["station_id"]}/{r["subloc"]}/{r["param"]}'
-        ylabel = f'{r["param"]} ({unit})'
-        title = f'{r["station_id"]}{r["subloc"]}::{r["agency"]}/{r["agency_id_dbase"]}'
-        crv = hv.Curve(df.iloc[:, [0]], label=crvlabel).redim(value=crvlabel)
-        return crv.opts(
-            xlabel="Time",
-            ylabel=ylabel,
-            title=title,
-            responsive=True,
-            active_tools=["wheel_zoom"],
-            tools=["hover"],
-        )
-
-    def _append_value(self, new_value, value):
-        if new_value not in value:
-            value += f'{", " if value else ""}{new_value}'
-        return value
-
-    def append_to_title_map(self, title_map, unit, r):
-        if unit in title_map:
-            value = title_map[unit]
-        else:
-            value = ["", ""]
-        value[0] = self._append_value(r["param"], value[0])
-        value[1] = self._append_value(r["station_id"], value[1])
-        title_map[unit] = value
-
-    def create_title(self, v):
-        title = f"{v[1]}({v[0]})"
-        return title
 
 
 # dir = "y:/repo/continuous"
