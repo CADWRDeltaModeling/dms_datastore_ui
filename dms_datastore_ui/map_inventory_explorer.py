@@ -172,7 +172,7 @@ class StationDatastore(param.Parameterized):
 
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
-        self.dir = os.path.normpath(dir)
+        self.dir = os.path.abspath(dir)
         if not os.path.exists(self.dir):
             raise Exception(f"Directory {self.dir} does not exist")
         try:

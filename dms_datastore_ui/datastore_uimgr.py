@@ -1,4 +1,6 @@
 import os
+import logging
+import time
 import param
 import panel as pn
 import pandas as pd
@@ -28,22 +30,36 @@ from dms_datastore_ui.datastore_actions import (
 import holoviews as hv
 import geopandas as gpd
 
+logger = logging.getLogger(__name__)
+
 
 class DatastoreFilepathReader(DataReferenceReader):
     """Reads time series data from an absolute ``filepath`` attribute.
 
-    This reader is standalone and does not depend on :class:`StationDatastore`
-    state. A single instance can be shared across many references.
+    A single instance can be shared across many references (flyweight).
+    Pass ``read_fn`` to substitute a memoized or otherwise cached callable
+    (e.g. ``StationDatastore.caching_read_ts``) in place of the default
+    plain :func:`~dms_datastore.read_ts.read_ts`.
     """
+
+    def __init__(self, read_fn=None):
+        self._read_fn = read_fn if read_fn is not None else read_ts
 
     def load(self, **attributes) -> pd.DataFrame:
         filepath = attributes.get("filepath")
         if not filepath:
             raise KeyError("DatastoreFilepathReader requires a 'filepath' attribute")
-        return read_ts(filepath)
+        print(f"[DatastoreFilepathReader.load] Reading: {filepath}", flush=True)
+        logger.debug("Reading: %s", filepath)
+        t0 = time.perf_counter()
+        result = self._read_fn(filepath)
+        elapsed = time.perf_counter() - t0
+        print(f"[DatastoreFilepathReader.load] Done {elapsed:.3f}s ({len(result)} rows): {filepath}", flush=True)
+        logger.debug("Read %.3fs (%d rows): %s", elapsed, len(result), filepath)
+        return result
 
     def __repr__(self) -> str:
-        return "DatastoreFilepathReader()"
+        return f"DatastoreFilepathReader(read_fn={self._read_fn!r})"
 
 
 class DatastoreDataReference(DataReference):
@@ -128,12 +144,15 @@ class DatastoreCatalogBuilder(CatalogBuilder):
         return isinstance(source, StationDatastore)
 
     def build(self, source: StationDatastore):
-        reader = DatastoreFilepathReader()
+        # Wire the diskcache-memoized wrapper so catalog reads hit the same
+        # on-disk cache that StationDatastore.get_data() and repocache.py use.
+        reader = DatastoreFilepathReader(read_fn=source.caching_read_ts)
         # Merge station inventory with dataset inventory on common columns.
         # df_dataset_inventory has additional columns like filename.
         merge_keys = ["station_id", "subloc", "name", "unit", "param", "min_year", "max_year", "agency", "agency_id_dbase", "x", "y"]
         inventory = source.df_dataset_inventory  # dataset inventory already includes all needed columns
         repo_level = source.repo_level[0]
+        logger.debug("Building catalog: %d rows from %s/%s", len(inventory), source.dir, repo_level)
         refs = []
         for _, row in inventory.iterrows():
             ref = DatastoreDataReference.from_inventory_row(
@@ -143,6 +162,7 @@ class DatastoreCatalogBuilder(CatalogBuilder):
                 reader=reader,
             )
             refs.append(ref)
+        logger.debug("Built %d DatastoreDataReferences", len(refs))
         return refs
 
     def __repr__(self) -> str:
@@ -348,6 +368,8 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # For datastore refs, ref.name == filename.  For mixed catalogs the
         # 'name' column (present when the full catalog DF is used) is preferred.
         key = row.get("name") if "name" in row.index else row["filename"]
+        print(f"[get_data_reference] key={key}", flush=True)
+        logger.debug("get_data_reference: key=%s", key)
         return self._catalog.get(key)
 
     def get_table_column_width_map(self):
@@ -398,12 +420,25 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         ref = self.data_catalog.get(r["name"])
         current_repo_level = self.repo_level[0] if self.repo_level else "screened"
         if ref.get_attribute("repo_level") != current_repo_level:
+            logger.debug(
+                "repo_level mismatch for %s: ref has '%s', updating to '%s'",
+                r["filename"], ref.get_attribute("repo_level"), current_repo_level,
+            )
             ref.set_attribute("repo_level", current_repo_level)
 
         unit = r["unit"]
         result_data = pd.DataFrame()
         try:
+            logger.debug(
+                "get_data_for_time_range: %s/%s file=%s range=%s to %s",
+                r["station_id"], r["param"], r["filename"], time_range[0], time_range[1],
+            )
+            t0 = time.perf_counter()
             ts_data = ref.getData()
+            logger.debug(
+                "getData %.3fs (%d rows): %s",
+                time.perf_counter() - t0, len(ts_data), r["filename"],
+            )
             if self.unit_conversion:
                 ts_data, unit = to_uniform_units(ts_data, r["param"], unit)
             result_data = ts_data[slice(time_range[0], time_range[1])]

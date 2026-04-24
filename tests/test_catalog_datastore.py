@@ -139,6 +139,7 @@ class TestDatastoreCatalogBuilder:
             repo_level=["screened"],
             df_station_inventory=station_df,
             df_dataset_inventory=dataset_df,
+            caching_read_ts=datastore_uimgr.read_ts,
         )
 
         refs = builder.build(source)
@@ -187,10 +188,11 @@ class TestDatastoreCatalogBuilder:
             repo_level=["screened"],
             df_station_inventory=station_df,
             df_dataset_inventory=dataset_df,
+            caching_read_ts=datastore_uimgr.read_ts,
         )
 
         refs = builder.build(source)
-        readers = {id(ref._reader) for ref in refs}
+        readers = {id(ref._reader_instance) for ref in refs}
 
         assert len(refs) == 2
         assert len(readers) == 1

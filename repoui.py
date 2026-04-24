@@ -1,3 +1,22 @@
+import logging
+import sys
+
+# panel serve (Bokeh) installs root-logger handlers before this script runs,
+# so basicConfig() is a no-op.  Set up our handler unconditionally; use a
+# module-level sentinel to prevent duplicate handlers on session re-runs.
+_dms_logger = logging.getLogger("dms_datastore_ui")
+if not getattr(_dms_logger, "_dms_handler_installed", False):
+    _dms_logger.setLevel(logging.DEBUG)
+    _dms_handler = logging.StreamHandler(sys.stderr)
+    _dms_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+    )
+    _dms_logger.addHandler(_dms_handler)
+    _dms_logger.propagate = False  # avoid double-printing via Bokeh's root handler
+    _dms_logger._dms_handler_installed = True
+_dms_logger.warning("dms_datastore_ui logging active (level=%s)", logging.getLevelName(_dms_logger.level))
+print(f"[repoui] dms_datastore_ui logging active, level={logging.getLevelName(_dms_logger.level)}", flush=True)
+
 import panel as pn
 
 pn.extension(
