@@ -242,7 +242,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             .add_builder(DatastoreCatalogBuilder())
             .add_source(self.datastore)
         )
-        kwargs["filename_column"] = "filename"
+        kwargs["url_column"] = "filename"
         # Sync repo_level choices from the validated datastore objects.
         valid_levels = self.datastore.param.repo_level.objects
         self.param.repo_level.objects = valid_levels
