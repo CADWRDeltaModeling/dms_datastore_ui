@@ -13,6 +13,10 @@ import numpy as np
 import yaml
 from datetime import datetime, timedelta
 import io
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
 
 hv.extension("bokeh")
 pn.extension("codeeditor")
@@ -91,13 +95,13 @@ class DataScreener(param.Parameterized):
         self.meta["screen"] = yaml.safe_load(self.editor.value)
         station_name = self.meta["station_name"]
         station_id = self.meta["station_id"]
-        sublocation = self.meta["sublocation"]
+        sublocation = self.meta["subloc"]
         param = self.meta["param"]
         title = f"""{param}@{station_id}/{sublocation} :: {station_name}"""
         dfscreened, dfanomaly = auto_screen.screener(
-            self.df,
+            self.df[["value"]],
             self.meta["station_id"],
-            self.meta["sublocation"],
+            self.meta["subloc"],
             self.meta["param"],
             self.meta["screen"],
             do_plot=False,
@@ -127,6 +131,7 @@ class DataScreener(param.Parameterized):
         try:
             self.plot_panel.object = self.screen_and_plot()
         except Exception as e:
+            logger.error(traceback.format_exc())
             self.plot_panel.object = hv.Div(f"<h3>Error: {e}</h3>")
         self.plot_panel.loading = False
 
@@ -144,7 +149,7 @@ class DataScreener(param.Parameterized):
         self.download_button = pn.widgets.FileDownload(
             button_type="success",
             icon="file-download",
-            filename=f"{self.meta['station_id']}{self.meta['sublocation']}_{self.meta['param']}_screened_{self.time_range[1].year}.csv",
+            filename=f"{self.meta['station_id']}{self.meta['subloc']}_{self.meta['param']}_screened_{self.time_range[1].year}.csv",
             callback=self.save_screening,
         )
         self.plot_panel = pn.panel(
