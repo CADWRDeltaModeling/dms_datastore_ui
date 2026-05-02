@@ -208,6 +208,8 @@ class DatastorePlotAction(TimeSeriesPlotAction):
 
 class DatastoreUIMgr(TimeSeriesDataUIManager):
     show_math_ref_editor = param.Boolean(default=False)
+    show_clear_cache = param.Boolean(default=False)
+    show_permalink = param.Boolean(default=False)
     repo_level = param.ListSelector(
         objects=["screened"],
         default=["screened"],
