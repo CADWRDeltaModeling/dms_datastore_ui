@@ -190,7 +190,7 @@ class StationDatastore(param.Parameterized):
             except Exception as e2:
                 print(f"Error initializing temp directory cache: {e2}, falling back to memory cache")
                 self.cache = _MemoryCache()
-        self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache else read_ts
+        self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache is not None else read_ts
         # check that repo_levels are valid and set default to first valid
         valid_repo_levels = []
         for repo_level in self.param.repo_level.objects:
