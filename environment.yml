@@ -4,13 +4,13 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python<3.14 # pinning at the same level as dms_datastore
+  - python # <3.14 # pinning at the same level as dms_datastore
   - pip
   - ipykernel
   - beautifulsoup4
   - vtools3
   - numba
-  - pandas<3 # temporary pinning due to compatibility issues with other dependencies vtools3 etc.
+  - pandas #<3 # temporary pinning due to compatibility issues with other dependencies vtools3 etc.
   - scipy
   - xarray
   - schimpy # remove this!
