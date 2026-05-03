@@ -207,7 +207,7 @@ class DatastorePlotAction(TimeSeriesPlotAction):
 
 
 class DatastoreUIMgr(TimeSeriesDataUIManager):
-    show_math_ref_editor = param.Boolean(default=False)
+    show_math_ref_editor = param.Boolean(default=True)
     show_clear_cache = param.Boolean(default=False)
     show_permalink = param.Boolean(default=False)
     repo_level = param.ListSelector(
@@ -394,19 +394,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             "station_id": {"type": "input", "func": "like"},
             "subloc": {"type": "input", "func": "like"},
             "station_name": {"type": "input", "func": "like"},
-            "param": {
-                "type": "list",
-                "valuesLookup": True,
-                "sort": "asc",
-                "multiselect": True,
-            },
-            "agency": {
-                "type": "list",
-                "func": "in",
-                "valuesLookup": True,
-                "sort": "asc",
-                "multiselect": True,
-            },
+            "param": { "type": "input", "func": "like" },
+            "ageny_id_dbase": { "type": "input", "func": "like" },
+            "agency": { "type": "input", "func": "like" },
+            "unit": { "type": "input", "func": "like" },
             "min_year": {"type": "number"},
             "max_year": {"type": "number"},
         }
