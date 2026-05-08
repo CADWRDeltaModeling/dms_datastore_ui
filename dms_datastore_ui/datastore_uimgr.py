@@ -240,11 +240,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # Build catalog before super().__init__() because the parent calls
         # get_data_catalog() during initialisation.
         self._catalog = (
-            DataCatalog(crs="EPSG:26910")
+            DataCatalog(primary_key=["station_id", "subloc", "param"], crs="EPSG:26910")
             .add_builder(DatastoreCatalogBuilder())
             .add_source(self.datastore)
         )
-        kwargs["url_column"] = "filename"
         # Sync repo_level choices from the validated datastore objects.
         valid_levels = self.datastore.param.repo_level.objects
         self.param.repo_level.objects = valid_levels

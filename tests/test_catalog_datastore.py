@@ -230,7 +230,7 @@ class TestMixedCatalog:
             param="flow",
         )
 
-        catalog = DataCatalog().add(ds_ref).add(mem_ref)
+        catalog = DataCatalog(primary_key=["station_id", "subloc", "param", "repo_level"]).add(ds_ref).add(mem_ref)
 
         assert set(catalog.list_names()) == {"ds_flow", "mem_flow"}
         assert len(catalog.search(param="flow")) == 2
