@@ -297,14 +297,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     def get_widgets(self):
         widget_tabs = super().get_widgets()
         # "Data" tab: repo_level selector + unit conversion toggle
-        widget_tabs.append(
-            (
-                "Data",
-                pn.WidgetBox(
-                    self.param.repo_level,
-                    self.param.unit_conversion,
-                ),
-            )
+        widget_tabs["Data"] = pn.WidgetBox(
+            self.param.repo_level,
+            self.param.unit_conversion,
         )
         return widget_tabs
 
