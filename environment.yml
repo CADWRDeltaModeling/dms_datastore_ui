@@ -24,6 +24,7 @@ dependencies:
   - holoviews
   - jupyter_bokeh
   - panel
+  - panel-material-ui
   - sqlite # =3.47.2 # temporary pinning
   - diskcache
   - joblib

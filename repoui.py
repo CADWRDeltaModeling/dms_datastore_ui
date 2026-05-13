@@ -287,7 +287,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         _REPO_DIR = sys.argv[1]
     pn.serve(
-        make_app,
+        {"repoui": make_app},
         port=80,
         address="0.0.0.0",
         allow_websocket_origin=["*"],
