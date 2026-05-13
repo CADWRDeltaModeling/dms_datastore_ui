@@ -242,7 +242,7 @@ def make_oldui_app():
     reg_key = f"{user_id}:oldui" if user_id else ""
 
     header_link = pn.pane.HTML(
-        '<a href="/repoui" style="color:white; font-size:0.9em; '
+        '<a href="/" style="color:white; font-size:0.9em; '
         'text-decoration:none; margin-left:1em; white-space:nowrap;">'
         "&#8592; New UI</a>",
         sizing_mode="fixed",
