@@ -133,22 +133,32 @@ def _restore(mgr, saved: dict) -> None:
             pass
 
 
-# ── [5] App factory (called once per Bokeh session / browser tab) ────────────
+# ── [5] App factories (called once per Bokeh session / browser tab) ──────────
 #
-# Registry hit — DataUI mode (same server, returning user navigated to #newui):
+# make_newui_app  → served at "/"   (the default, DataUI)
+# make_oldui_app  → served at "/oldui"  (classic StationInventoryExplorer)
+#
+# Registry key scheme: "{user_id}:newui" / "{user_id}:oldui" — keeps the two
+# apps independent even though they share the same cookie-based user_id.
+#
+# Registry hit — DataUI mode (same server, returning user):
 #   Reuse existing mgr + ui + template.  Panel automatically mirrors all
-#   widget state (display_panel tabs, table selection, etc.) into the new
-#   Bokeh Document when template.servable() is called.  Only per-Document
-#   setup (URL/location sync) is re-registered via pn.state.onload.
-#
-# All other cases (new user, server restart, or user was on explorer):
-#   Create a fresh template; run normal hash-based routing (init_app).
+#   widget state into the new Bokeh Document when template.servable() is
+#   called.  Only per-Document setup is re-registered via pn.state.onload.
 
 
-def make_app():
+def make_newui_app():
     user_id = pn.state.cookies.get("dvue_user_id", "")
-    entry = _APP_REGISTRY.get(user_id) if user_id else None
+    reg_key = f"{user_id}:newui" if user_id else ""
+    entry = _APP_REGISTRY.get(reg_key) if reg_key else None
     reuse_dataui = bool(entry and entry.get("mode") == "dataui")
+
+    header_link = pn.pane.HTML(
+        '<a href="/oldui" style="color:white; font-size:0.9em; '
+        'text-decoration:none; margin-left:1em; white-space:nowrap;">'
+        "&#8594; Classic Explorer</a>",
+        sizing_mode="fixed",
+    )
 
     if reuse_dataui:
         # ── Registry hit: DataUI already built ──────────────────────────────
@@ -164,7 +174,7 @@ def make_app():
         template.servable(title="DMS Datastore")
         return
 
-    # ── No registry or explorer mode: build a fresh session ──────────────────
+    # ── Build a fresh session ─────────────────────────────────────────────────
     main_panel = pn.Column(
         pn.indicators.LoadingSpinner(
             value=True, color="primary", size=50, name="Loading..."
@@ -183,30 +193,8 @@ def make_app():
         sidebar_width=650,
         header_color="blue",
         logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
+        header=[header_link],
     )
-
-    def load_explorer():
-        explorer = dms_datastore_ui.map_inventory_explorer.StationInventoryExplorer(_REPO_DIR)
-        view = explorer.create_view()
-
-        sidebar_items = list(view.sidebar)
-        main_items = list(view.main)
-        modal_items = list(view.modal)
-        view.sidebar.clear()
-        view.main.clear()
-        view.modal.clear()
-
-        sidebar_panel.objects = sidebar_items
-        main_panel.objects = main_items
-
-        template.modal.clear()
-        for item in modal_items:
-            template.modal.append(item)
-
-        if user_id:
-            _APP_REGISTRY[user_id] = {
-                "template": template, "mode": "explorer", "mgr": None, "ui": None
-            }
 
     def load_dataui():
         saved = _load_state(user_id) if user_id else {}
@@ -231,8 +219,8 @@ def make_app():
         for item in modal_items:
             template.modal.append(item)
 
-        if user_id:
-            _APP_REGISTRY[user_id] = {
+        if reg_key:
+            _APP_REGISTRY[reg_key] = {
                 "template": template, "mode": "dataui", "mgr": uimgr, "ui": ui
             }
 
@@ -245,49 +233,84 @@ def make_app():
         if hasattr(ui, "display_table"):
             ui.display_table.param.watch(_save, "selection")
 
-    def init_app():
-        location = pn.state.location
-        has_loaded = [False]
-
-        def _on_hash_change(event):
-            has_loaded[0] = True
-            if event.new == "#newui":
-                load_dataui()
-            elif event.new in ("#combined", "#table", "#display"):
-                pass  # DataUI's own setup_location_sync watcher handles these
-            else:
-                load_explorer()
-
-        location.param.watch(_on_hash_change, "hash")
-
-        # Fallback: fires once after 300 ms for plain URLs where the hash
-        # watcher never triggers (location.hash stays "" and Panel skips the
-        # param update).
-        def _fallback():
-            if not has_loaded[0]:
-                has_loaded[0] = True
-                if location.hash == "#newui":
-                    load_dataui()
-                else:
-                    load_explorer()
-
-        pn.state.add_periodic_callback(_fallback, period=300, count=1)
-
-    pn.state.onload(init_app)
+    pn.state.onload(load_dataui)
     template.servable(title="DMS Datastore")
+
+
+def make_oldui_app():
+    user_id = pn.state.cookies.get("dvue_user_id", "")
+    reg_key = f"{user_id}:oldui" if user_id else ""
+
+    header_link = pn.pane.HTML(
+        '<a href="/repoui" style="color:white; font-size:0.9em; '
+        'text-decoration:none; margin-left:1em; white-space:nowrap;">'
+        "&#8592; New UI</a>",
+        sizing_mode="fixed",
+    )
+
+    main_panel = pn.Column(
+        pn.indicators.LoadingSpinner(
+            value=True, color="primary", size=50, name="Loading..."
+        ),
+        sizing_mode="stretch_both",
+    )
+    sidebar_panel = pn.Column(
+        pn.indicators.LoadingSpinner(
+            value=True, color="primary", size=50, name="Loading..."
+        )
+    )
+    template = pn.template.VanillaTemplate(
+        title="DMS Datastore \u2014 Classic Explorer",
+        sidebar=[sidebar_panel],
+        main=[main_panel],
+        sidebar_width=650,
+        header_color="blue",
+        logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
+        header=[header_link],
+    )
+
+    def load_explorer():
+        explorer = dms_datastore_ui.map_inventory_explorer.StationInventoryExplorer(_REPO_DIR)
+        view = explorer.create_view()
+
+        sidebar_items = list(view.sidebar)
+        main_items = list(view.main)
+        modal_items = list(view.modal)
+        view.sidebar.clear()
+        view.main.clear()
+        view.modal.clear()
+
+        sidebar_panel.objects = sidebar_items
+        main_panel.objects = main_items
+
+        template.modal.clear()
+        for item in modal_items:
+            template.modal.append(item)
+
+        if reg_key:
+            _APP_REGISTRY[reg_key] = {
+                "template": template, "mode": "explorer", "mgr": None, "ui": None
+            }
+
+    pn.state.onload(load_explorer)
+    template.servable(title="DMS Datastore \u2014 Classic Explorer")
 
 
 # ── [6] Entry point ───────────────────────────────────────────────────────────
 #
 # Run:  python repoui.py [repo_dir]
 # The per_app_patterns patch above must execute before BokehServer starts;
-# pn.serve(make_app) ensures module-level code runs only once.
+# pn.serve(...) ensures module-level code runs only once.
+#
+# Routes:
+#   /repoui  → new DataUI  (make_newui_app)
+#   /oldui   → classic StationInventoryExplorer  (make_oldui_app)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         _REPO_DIR = sys.argv[1]
     pn.serve(
-        {"repoui": make_app},
+        {"": make_newui_app, "oldui": make_oldui_app},
         port=80,
         address="0.0.0.0",
         allow_websocket_origin=["*"],
