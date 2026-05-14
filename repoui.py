@@ -310,7 +310,7 @@ def make_oldui_app():
 
 # ── [6] Entry point ───────────────────────────────────────────────────────────
 #
-# Run:  python repoui.py [repo_dir]
+# Run:  python repoui.py [REPO_DIR] [--port PORT] [--address ADDRESS]
 # The per_app_patterns patch above must execute before BokehServer starts;
 # pn.serve(...) ensures module-level code runs only once.
 #
@@ -318,15 +318,36 @@ def make_oldui_app():
 #   /repoui  → new DataUI  (make_newui_app)
 #   /oldui   → classic StationInventoryExplorer  (make_oldui_app)
 
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        _REPO_DIR = sys.argv[1]
+import click
+
+
+@click.command()
+@click.argument("repo_dir", default="continuous", required=False)
+@click.option("--port", default=80, show_default=True, help="Port to serve on.")
+@click.option(
+    "--address",
+    default="0.0.0.0",
+    show_default=True,
+    help="Network address to bind to.",
+)
+def _serve(repo_dir: str, port: int, address: str) -> None:
+    """Serve the DMS Datastore UI.
+
+    REPO_DIR is the path to the continuous data repository
+    (default: 'continuous').
+    """
+    global _REPO_DIR
+    _REPO_DIR = repo_dir
     pn.serve(
         {"": make_newui_app, "oldui": make_oldui_app},
-        port=80,
-        address="0.0.0.0",
+        port=port,
+        address=address,
         allow_websocket_origin=["*"],
         keep_alive=30000,
         unused_session_lifetime_milliseconds=2_592_000_000,
         show=False,
     )
+
+
+if __name__ == "__main__":
+    _serve()
