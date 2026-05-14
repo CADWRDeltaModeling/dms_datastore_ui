@@ -162,13 +162,24 @@ def make_newui_app():
 
     if reuse_dataui:
         # ── Registry hit: DataUI already built ──────────────────────────────
+        # Show a loading overlay on the existing content immediately so the
+        # user sees feedback while Bokeh serialises the widget tree into the
+        # new document.  The overlay is cleared once onload fires.
         template = entry["template"]
         ui = entry["ui"]
+        main_panel = entry.get("main_panel")
+
+        if main_panel is not None:
+            main_panel.loading = True
 
         def _reattach():
-            if ui:
-                ui.setup_location_sync()
-                ui.setup_url_sync()
+            try:
+                if ui:
+                    ui.setup_location_sync()
+                    ui.setup_url_sync()
+            finally:
+                if main_panel is not None:
+                    main_panel.loading = False
 
         pn.state.onload(_reattach)
         template.servable(title="DMS Datastore")
@@ -221,7 +232,8 @@ def make_newui_app():
 
         if reg_key:
             _APP_REGISTRY[reg_key] = {
-                "template": template, "mode": "dataui", "mgr": uimgr, "ui": ui
+                "template": template, "mode": "dataui",
+                "mgr": uimgr, "ui": ui, "main_panel": main_panel,
             }
 
         # Wire live-persistence watchers (diskcache save on state change).
