@@ -17,61 +17,32 @@ print(f"[repoui] dms_datastore_ui logging active, level={logging.getLevelName(_d
 
 # ── [1] Session persistence ─────────────────────────────────────────────────
 #
-# Run as:  python repoui.py [repo_dir]
-# Do NOT use `panel serve` — the per_app_patterns patch must run before
-# BokehServer.__init__().  pn.serve(make_app) handles this correctly.
+# Run as:  python repoui.py [REPO_DIR] [--port PORT] [--address ADDRESS]
+# Do NOT use `panel serve` — install_session_handler() patches Bokeh's
+# per_app_patterns before BokehServer starts; pn.serve() ensures module-level
+# code runs exactly once.
 #
-# Two-layer persistence:
-#   Layer 1 — _APP_REGISTRY (in-memory, same server process):
-#     UUID cookie → registry entry → reuse existing mgr + ui + template.
-#     Panel mirrors all Python widget state (plot tabs, selections, etc.)
-#     into the new Bokeh Document automatically when template.servable() is
-#     called.  No replay logic needed.
-#   Layer 2 — diskcache (server restart):
-#     Picklable params (time_range) are restored to a freshly created manager.
-#     Dynamic tab content is not serialisable and is not restored.
+# Two-layer persistence (both managed by SessionManager):
+#   Layer 1 — in-memory registry (same server process)
+#   Layer 2 — diskcache (server-restart fallback, persist=True)
 
 import panel as pn
-from uuid import uuid4
-from bokeh.server.urls import per_app_patterns
-from panel.io.server import DocHandler
-import diskcache
 from pathlib import Path
 import pandas as pd
+from dvue.session_persistence import (
+    install_session_handler,
+    SessionManager,
+    snapshot as _snapshot,
+    restore as _restore,
+)
 
+install_session_handler()
 
-class _SessionAwareDocHandler(DocHandler):
-    """Sets a persistent 'dvue_user_id' UUID cookie on first visit."""
-
-    _COOKIE_NAME = "dvue_user_id"
-
-    async def get(self, *args, **kwargs):
-        user_id = self.get_cookie(self._COOKIE_NAME)
-        if not user_id:
-            user_id = uuid4().hex
-            self.set_cookie(self._COOKIE_NAME, user_id, expires_days=365, path="/")
-            self.request.cookies[self._COOKIE_NAME] = user_id
-        await super().get(*args, **kwargs)
-
-
-per_app_patterns[0] = (r"/?", _SessionAwareDocHandler)
-
-# -- diskcache state store (server-restart fallback) -------------------------
-_CACHE_DIR = Path(__file__).parent / ".session_cache"
-_SESSION_CACHE = diskcache.Cache(str(_CACHE_DIR))
-_TTL = 30 * 24 * 3600  # 30 days
-
-
-def _load_state(user_id: str) -> dict:
-    return _SESSION_CACHE.get(user_id, default={})
-
-
-def _save_state(user_id: str, state: dict) -> None:
-    _SESSION_CACHE.set(user_id, state, expire=_TTL)
-
-
-# -- In-memory registry: user_id → {"template", "mode", "mgr", "ui"} --------
-_APP_REGISTRY: dict = {}
+_session_mgr = SessionManager(
+    cookie_name="dvue_user_id",
+    cache_dir=Path(__file__).parent / ".session_cache",
+    persist=True,
+)
 
 # ── [2] Panel extension + heavy imports (run once at server start) ───────────
 
@@ -104,53 +75,19 @@ import cartopy.crs as ccrs
 # ── [3] Repo directory (override via CLI arg or environment) ─────────────────
 _REPO_DIR = "continuous"
 
-# ── [4] Diskcache snapshot / restore ─────────────────────────────────────────
-
-
-def _snapshot(mgr, ui) -> dict:
-    """Picklable snapshot for diskcache (server-restart fallback only)."""
-    tr = getattr(mgr, "time_range", None)
-    tbl = getattr(ui, "display_table", None)
-    return {
-        "time_range": (
-            [pd.Timestamp(tr[0]).isoformat(), pd.Timestamp(tr[1]).isoformat()]
-            if tr else None
-        ),
-        "selection": list(tbl.selection or []) if tbl is not None else [],
-    }
-
-
-def _restore(mgr, saved: dict) -> None:
-    """Apply diskcache params to a freshly created manager."""
-    tr = saved.get("time_range")
-    if tr:
-        try:
-            mgr.time_range = (
-                pd.Timestamp(tr[0]).to_pydatetime(),
-                pd.Timestamp(tr[1]).to_pydatetime(),
-            )
-        except Exception:
-            pass
-
 
 # ── [5] App factories (called once per Bokeh session / browser tab) ──────────
 #
-# make_newui_app  → served at "/"   (the default, DataUI)
-# make_oldui_app  → served at "/oldui"  (classic StationInventoryExplorer)
+# make_newui_app  → DataUI (new UI); reset button lives in the DataUI action row
+# make_oldui_app  → classic StationInventoryExplorer; reset button in header
 #
-# Registry key scheme: "{user_id}:newui" / "{user_id}:oldui" — keeps the two
-# apps independent even though they share the same cookie-based user_id.
-#
-# Registry hit — DataUI mode (same server, returning user):
-#   Reuse existing mgr + ui + template.  Panel automatically mirrors all
-#   widget state into the new Bokeh Document when template.servable() is
-#   called.  Only per-Document setup is re-registered via pn.state.onload.
+# Registry key scheme: "{user_id}:newui" / "{user_id}:oldui"
 
 
 def make_newui_app():
-    user_id = pn.state.cookies.get("dvue_user_id", "")
-    reg_key = f"{user_id}:newui" if user_id else ""
-    entry = _APP_REGISTRY.get(reg_key) if reg_key else None
+    user_id  = _session_mgr.current_user_id
+    reg_key  = _session_mgr.make_reg_key(user_id, "newui")
+    entry    = _session_mgr.get_entry(reg_key)
     reuse_dataui = bool(entry and entry.get("mode") == "dataui")
 
     header_link = pn.pane.HTML(
@@ -162,11 +99,8 @@ def make_newui_app():
 
     if reuse_dataui:
         # ── Registry hit: DataUI already built ──────────────────────────────
-        # Show a loading overlay on the existing content immediately so the
-        # user sees feedback while Bokeh serialises the widget tree into the
-        # new document.  The overlay is cleared once onload fires.
-        template = entry["template"]
-        ui = entry["ui"]
+        template   = entry["template"]
+        ui         = entry["ui"]
         main_panel = entry.get("main_panel")
 
         if main_panel is not None:
@@ -208,8 +142,9 @@ def make_newui_app():
     )
 
     def load_dataui():
-        saved = _load_state(user_id) if user_id else {}
+        saved = _session_mgr.load_state(user_id)
         uimgr = DatastoreUIMgr(_REPO_DIR)
+        uimgr.show_reset_session_button = True  # reset button wired in DataUI action row
         if saved:
             _restore(uimgr, saved)
 
@@ -217,29 +152,26 @@ def make_newui_app():
         ui_template = ui.create_view()
 
         sidebar_items = list(ui_template.sidebar)
-        main_items = list(ui_template.main)
-        modal_items = list(ui_template.modal)
+        main_items    = list(ui_template.main)
+        modal_items   = list(ui_template.modal)
         ui_template.sidebar.clear()
         ui_template.main.clear()
         ui_template.modal.clear()
 
         sidebar_panel.objects = sidebar_items
-        main_panel.objects = main_items
+        main_panel.objects    = main_items
 
         template.modal.clear()
         for item in modal_items:
             template.modal.append(item)
 
-        if reg_key:
-            _APP_REGISTRY[reg_key] = {
-                "template": template, "mode": "dataui",
-                "mgr": uimgr, "ui": ui, "main_panel": main_panel,
-            }
+        _session_mgr.set_entry(reg_key, {
+            "template": template, "mode": "dataui",
+            "mgr": uimgr, "ui": ui, "main_panel": main_panel,
+        })
 
-        # Wire live-persistence watchers (diskcache save on state change).
         def _save(event=None):
-            if user_id:
-                _save_state(user_id, _snapshot(uimgr, ui))
+            _session_mgr.save_state(user_id, _snapshot(uimgr, ui))
 
         uimgr.param.watch(_save, "time_range")
         if hasattr(ui, "display_table"):
@@ -250,8 +182,8 @@ def make_newui_app():
 
 
 def make_oldui_app():
-    user_id = pn.state.cookies.get("dvue_user_id", "")
-    reg_key = f"{user_id}:oldui" if user_id else ""
+    user_id = _session_mgr.current_user_id
+    reg_key = _session_mgr.make_reg_key(user_id, "oldui")
 
     header_link = pn.pane.HTML(
         '<a href="/" style="color:white; font-size:0.9em; '
@@ -259,6 +191,7 @@ def make_oldui_app():
         "&#8592; New UI</a>",
         sizing_mode="fixed",
     )
+    reset_btn = _session_mgr.make_reset_button(reg_key, sizing_mode="fixed")
 
     main_panel = pn.Column(
         pn.indicators.LoadingSpinner(
@@ -278,7 +211,7 @@ def make_oldui_app():
         sidebar_width=650,
         header_color="blue",
         logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
-        header=[header_link],
+        header=[header_link, reset_btn],
     )
 
     def load_explorer():
@@ -286,23 +219,22 @@ def make_oldui_app():
         view = explorer.create_view()
 
         sidebar_items = list(view.sidebar)
-        main_items = list(view.main)
-        modal_items = list(view.modal)
+        main_items    = list(view.main)
+        modal_items   = list(view.modal)
         view.sidebar.clear()
         view.main.clear()
         view.modal.clear()
 
         sidebar_panel.objects = sidebar_items
-        main_panel.objects = main_items
+        main_panel.objects    = main_items
 
         template.modal.clear()
         for item in modal_items:
             template.modal.append(item)
 
-        if reg_key:
-            _APP_REGISTRY[reg_key] = {
-                "template": template, "mode": "explorer", "mgr": None, "ui": None
-            }
+        _session_mgr.set_entry(reg_key, {
+            "template": template, "mode": "explorer", "mgr": None, "ui": None
+        })
 
     pn.state.onload(load_explorer)
     template.servable(title="DMS Datastore \u2014 Classic Explorer")
