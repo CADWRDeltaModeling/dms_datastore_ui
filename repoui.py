@@ -153,7 +153,6 @@ def make_newui_app():
 
         sidebar_items = list(ui_template.sidebar)
         main_items    = list(ui_template.main)
-        modal_items   = list(ui_template.modal)
         ui_template.sidebar.clear()
         ui_template.main.clear()
         ui_template.modal.clear()
@@ -161,9 +160,11 @@ def make_newui_app():
         sidebar_panel.objects = sidebar_items
         main_panel.objects    = main_items
 
+        # Wire About (and optional Disclaimer) buttons to the outer VanillaTemplate
+        # so that open_modal() targets the correct served template.
+        # add_header_buttons also populates template.modal with the about text.
         template.modal.clear()
-        for item in modal_items:
-            template.modal.append(item)
+        ui.add_header_buttons(template)
 
         _session_mgr.set_entry(reg_key, {
             "template": template, "mode": "dataui",

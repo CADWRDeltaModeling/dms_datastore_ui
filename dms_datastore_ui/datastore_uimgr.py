@@ -262,6 +262,20 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         self.dashed_line_cycle_column = "subloc"
         self.marker_cycle_column = "param"
 
+    def get_version(self) -> str:
+        try:
+            from dms_datastore_ui._version import version
+            return version
+        except Exception:
+            return "unknown"
+
+    def get_about_text(self) -> str:
+        return (
+            "DMS Datastore UI provides an interactive dashboard for browsing, "
+            "visualising, and screening continuous water-quality and hydrological "
+            "time-series data managed by the Delta Modeling Section."
+        )
+
     @param.depends("repo_level", watch=True)
     def _sync_repo_level(self):
         """Keep the StationDatastore in sync when repo_level changes."""
