@@ -1,6 +1,9 @@
 import os
 import logging
 import time
+import glob
+import re
+from pathlib import Path
 import param
 import panel as pn
 import pandas as pd
@@ -20,6 +23,7 @@ from dvue.catalog import (
     DataCatalog,
 )
 from dms_datastore.read_ts import read_ts
+from dms_datastore.filename import interpret_fname
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 from dms_datastore_ui.map_inventory_explorer import to_uniform_units
 from dms_datastore_ui.datastore_actions import (
@@ -42,13 +46,30 @@ class DatastoreFilepathReader(DataReferenceReader):
     plain :func:`~dms_datastore.read_ts.read_ts`.
     """
 
-    def __init__(self, read_fn=None):
+    def __init__(self, source: str = "", read_fn=None):
+        self._source = source or ""
         self._read_fn = read_fn if read_fn is not None else read_ts
 
     def load(self, **attributes) -> pd.DataFrame:
         filepath = attributes.get("filepath")
         if not filepath:
-            raise KeyError("DatastoreFilepathReader requires a 'filepath' attribute")
+            # Inventory-derived refs store a glob pattern instead of a resolved path.
+            # Resolve lazily on first data request.
+            file_pattern = attributes.get("file_pattern", "")
+            repo_root = str(attributes.get("repo_root") or "")
+            repo_level = str(attributes.get("repo_level") or "")
+            if file_pattern:
+                search_root = os.path.join(repo_root, repo_level) if repo_level else repo_root
+                matches = sorted(glob.glob(os.path.join(search_root, file_pattern)))
+                if matches:
+                    filepath = matches[-1]
+        if not filepath and self._source and os.path.isfile(self._source):
+            filepath = self._source
+        if not filepath:
+            raise KeyError(
+                "DatastoreFilepathReader: cannot resolve filepath from attributes. "
+                "Provide 'filepath' or 'file_pattern'+'repo_root'."
+            )
         print(f"[DatastoreFilepathReader.load] Reading: {filepath}", flush=True)
         logger.debug("Reading: %s", filepath)
         t0 = time.perf_counter()
@@ -58,8 +79,146 @@ class DatastoreFilepathReader(DataReferenceReader):
         logger.debug("Read %.3fs (%d rows): %s", elapsed, len(result), filepath)
         return result
 
+    @classmethod
+    def scan(cls, path: str):
+        """Scan a datastore CSV path and return one or more references.
+
+        Supports both:
+        - time-series CSV files (single reference)
+        - inventory CSV files (one reference per inventory row)
+        """
+        p = Path(path)
+        fname = p.name
+        stem = p.stem
+
+        # Inventory file mode: inventory_datasets_<repo_level>_*.csv
+        try:
+            inv = pd.read_csv(path)
+        except Exception:
+            inv = None
+
+        if inv is not None and {"file_pattern", "station_id", "param"}.issubset(inv.columns):
+            m = re.search(r"inventory_datasets_(?P<level>[^_]+)_", stem)
+            repo_level = m.group("level") if m else ""
+            repo_root = str(p.parent)
+
+            refs = []
+            for _, row in inv.iterrows():
+                pattern = str(row.get("file_pattern") or "").strip()
+                if not pattern:
+                    continue
+
+                station_id = str(row.get("station_id") or "")
+                subloc = row.get("subloc")
+                subloc = "" if pd.isna(subloc) or not subloc else str(subloc)
+                station = f"{station_id}@{subloc}" if subloc else station_id
+                param_name = str(row.get("param") or "")
+                station_name = str(row.get("name") or "")
+                unit = str(row.get("unit") or "")
+                agency = str(row.get("agency") or "")
+                agency_id = str(row.get("agency_id_registry") or row.get("agency_id") or "")
+                x = row.get("x")
+                y = row.get("y")
+                lat = row.get("lat")
+                lon = row.get("lon")
+                geometry = None
+                # Prefer WGS84 lat/lon so geometry is compatible with the
+                # default PlateCarree map CRS used by RegistryUIManager/dvue ui.
+                if pd.notna(lat) and pd.notna(lon):
+                    try:
+                        geometry = Point(float(lon), float(lat))
+                    except Exception:
+                        pass
+                elif pd.notna(x) and pd.notna(y):
+                    try:
+                        geometry = Point(float(x), float(y))
+                    except Exception:
+                        pass
+
+                name = f"{station}_{param_name}" if station_id and param_name else stem
+
+                # Filepath is NOT resolved here — glob is deferred to load() so
+                # that scan() returns immediately without touching the filesystem.
+                refs.append(
+                    DatastoreDataReference(
+                        source=repo_root,
+                        reader=cls(),
+                        name=name,
+                        cache=False,
+                        file_pattern=pattern,
+                        repo_root=repo_root,
+                        repo_level=repo_level,
+                        station_id=station_id,
+                        subloc=subloc,
+                        station=station,
+                        variable=param_name,
+                        id=station,
+                        station_name=station_name,
+                        param=param_name,
+                        unit=unit,
+                        min_year=row.get("min_year"),
+                        max_year=row.get("max_year"),
+                        agency=agency,
+                        agency_id_dbase=agency_id,
+                        x=x,
+                        y=y,
+                        geometry=geometry,
+                    )
+                )
+
+            if refs:
+                return refs
+
+        # Single time-series file mode
+        station_id = ""
+        subloc = ""
+        param_name = ""
+        agency = ""
+        agency_id = ""
+        min_year = None
+        max_year = None
+
+        try:
+            meta = interpret_fname(fname)
+            station_id = str(meta.get("station_id", "") or "")
+            subloc = str(meta.get("subloc", "") or "")
+            param_name = str(meta.get("param", "") or "")
+            agency = str(meta.get("agency", "") or "")
+            agency_id = str(meta.get("agency_id", "") or "")
+            min_year = meta.get("syear", meta.get("year"))
+            max_year = meta.get("eyear", meta.get("year"))
+        except Exception:
+            logger.debug("Could not parse datastore metadata from filename: %s", fname)
+
+        sid = f"{station_id}@{subloc}" if subloc else station_id
+        ref = DatastoreDataReference(
+            source=path,
+            reader=cls(path),
+            name=stem,
+            cache=False,
+            filepath=path,
+            repo_level="",
+            filename=fname,
+            station_id=station_id,
+            subloc=subloc,
+            station=sid,
+            variable=param_name,
+            id=sid,
+            station_name="",
+            param=param_name,
+            unit="",
+            min_year=min_year,
+            max_year=max_year,
+            agency=agency,
+            agency_id_dbase=agency_id,
+            x=None,
+            y=None,
+            geometry=None,
+        )
+        return [ref]
+
     def __repr__(self) -> str:
-        return f"DatastoreFilepathReader(read_fn={self._read_fn!r})"
+        return f"DatastoreFilepathReader(source={self._source!r}, read_fn={self._read_fn!r})"
 
 
 class DatastoreDataReference(DataReference):
@@ -69,9 +228,16 @@ class DatastoreDataReference(DataReference):
     metadata required by filtering, map display, and mixed-catalog workflows.
     """
 
+    ref_type = "datastore_csv"
+
     def __init__(self, reader=None, name: str = "", cache: bool = False, **attributes):
-        if not attributes.get("filepath"):
-            raise ValueError("DatastoreDataReference requires a non-empty 'filepath'")
+        has_filepath = bool(attributes.get("filepath"))
+        has_pattern = bool(attributes.get("file_pattern"))
+        if not has_filepath and not has_pattern:
+            raise ValueError(
+                "DatastoreDataReference requires either a non-empty 'filepath' "
+                "or a 'file_pattern' (for inventory-derived references)."
+            )
         if reader is None:
             reader = DatastoreFilepathReader()
         super().__init__(reader=reader, name=name, cache=cache, **attributes)

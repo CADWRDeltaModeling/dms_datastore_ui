@@ -54,6 +54,9 @@ dependencies = [
 [project.scripts]
 dms_datastore_ui = "dms_datastore_ui.cli:main"
 
+[project.entry-points."dvue.plugins"]
+dms_datastore_ui = "dms_datastore_ui.readers:register_readers"
+
 [tool.setuptools]
 packages = ["dms_datastore_ui"]
 
