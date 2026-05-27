@@ -169,6 +169,35 @@ class DatastoreCatalogBuilder(CatalogBuilder):
         return "DatastoreCatalogBuilder()"
 
 
+class _UnitConvertingRef:
+    """Thin wrapper around a DataReference that applies to_uniform_units on getData().
+
+    Used by DatastoreUIMgr.get_data_reference when unit_conversion=True so that
+    unit conversion is applied on every data-loading path (plot, download, tabulate).
+    Setting data.attrs["unit"] ensures TimeSeriesPlotAction.render reads the
+    converted unit for curve labels before _process_curve_data is called.
+    """
+
+    def __init__(self, inner, param, unit):
+        self._inner = inner
+        self._param = param
+        self._unit = unit
+
+    def getData(self, time_range=None):
+        data = self._inner.getData(time_range=time_range)
+        if data is not None and not data.empty:
+            data = data.copy()  # avoid mutating cached data
+            data, converted_unit = to_uniform_units(data, self._param, self._unit)
+            data.attrs["unit"] = converted_unit
+        return data
+
+    def get_attribute(self, key, default=None):
+        return self._inner.get_attribute(key, default)
+
+    def invalidate_cache(self, time_range=None):
+        return self._inner.invalidate_cache(time_range=time_range)
+
+
 class DatastorePlotAction(TimeSeriesPlotAction):
     """TimeSeriesPlotAction with datastore-specific curve labels and titles."""
 
@@ -378,9 +407,13 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # For datastore refs, ref.name == filename.  For mixed catalogs the
         # 'name' column (present when the full catalog DF is used) is preferred.
         key = row.get("name") if "name" in row.index else row["filename"]
-        print(f"[get_data_reference] key={key}", flush=True)
         logger.debug("get_data_reference: key=%s", key)
-        return self._catalog.get(key)
+        ref = self._catalog.get(key)
+        if self.unit_conversion:
+            param = row.get("param", "") if hasattr(row, "get") else row["param"]
+            unit = row.get("unit", "") if hasattr(row, "get") else row["unit"]
+            return _UnitConvertingRef(ref, param, unit)
+        return ref
 
     def get_table_column_width_map(self):
         return {
