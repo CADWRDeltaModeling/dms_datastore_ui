@@ -52,35 +52,41 @@ class DatastoreRegistryUIManager(RegistryUIManager):
         self.dashed_line_cycle_column = "subloc"
         self.marker_cycle_column = "param"
 
-    def _get_table_column_width_map(self):
+    def get_table_schema(self, df=None):
+        if df is None:
+            df = self.get_data_catalog()
         return {
-            "station_id": "10%",
-            "subloc": "5%",
-            "station_name": "25%",
-            "min_year": "5%",
-            "max_year": "5%",
-            "agency": "5%",
-            "agency_id_dbase": "5%",
-            "param": "10%",
-            "unit": "10%",
-        }
-
-    def get_table_columns(self):
-        # Include "name" as a data-only column so get_data_reference() can
-        # look up refs by their catalog key even though it is not displayed.
-        return list(self.get_table_column_width_map().keys()) + ["name"]
-
-    def get_table_filters(self):
-        return {
-            "station_id": {"type": "input", "func": "like", "placeholder": "filter"},
-            "subloc": {"type": "input", "func": "like", "placeholder": "filter"},
-            "station_name": {"type": "input", "func": "like", "placeholder": "filter"},
-            "param": {"type": "input", "func": "like", "placeholder": "filter"},
-            "agency_id_dbase": {"type": "input", "func": "like", "placeholder": "filter"},
-            "agency": {"type": "input", "func": "like", "placeholder": "filter"},
-            "unit": {"type": "input", "func": "like", "placeholder": "filter"},
-            "min_year": {"type": "number"},
-            "max_year": {"type": "number"},
+            "required_columns": [
+                "station_id", "subloc", "station_name",
+                "min_year", "max_year", "agency", "agency_id_dbase",
+                "param", "unit",
+                "name",   # hidden; needed by get_data_reference()
+            ],
+            "optional_columns": [],
+            "hidden_by_default": ["name"],
+            "drop_if_all_null": False,
+            "column_widths": {
+                "station_id": "10%",
+                "subloc": "5%",
+                "station_name": "25%",
+                "min_year": "5%",
+                "max_year": "5%",
+                "agency": "5%",
+                "agency_id_dbase": "5%",
+                "param": "10%",
+                "unit": "10%",
+            },
+            "filters": {
+                "station_id": {"type": "input", "func": "like", "placeholder": "filter"},
+                "subloc": {"type": "input", "func": "like", "placeholder": "filter"},
+                "station_name": {"type": "input", "func": "like", "placeholder": "filter"},
+                "param": {"type": "input", "func": "like", "placeholder": "filter"},
+                "agency_id_dbase": {"type": "input", "func": "like", "placeholder": "filter"},
+                "agency": {"type": "input", "func": "like", "placeholder": "filter"},
+                "unit": {"type": "input", "func": "like", "placeholder": "filter"},
+                "min_year": {"type": "number"},
+                "max_year": {"type": "number"},
+            },
         }
 
     def build_station_name(self, r):

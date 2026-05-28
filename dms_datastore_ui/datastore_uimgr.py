@@ -565,14 +565,44 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         return f"{r['station_id']}{subloc}"
 
     # display related support for tables
-    def get_table_columns(self):
-        return list(self.get_table_column_width_map().keys()) + ["filename"]
+    def get_table_schema(self, df=None):
+        if df is None:
+            df = self.get_data_catalog()
+        return {
+            "required_columns": [
+                "station_id", "subloc", "station_name",
+                "min_year", "max_year", "agency", "agency_id_dbase",
+                "param", "unit",
+                "filename",   # hidden; needed by get_data_reference()
+            ],
+            "optional_columns": [],
+            "hidden_by_default": ["filename"],
+            "drop_if_all_null": False,
+            "column_widths": {
+                "station_id": "10%",
+                "subloc": "5%",
+                "station_name": "25%",
+                "min_year": "5%",
+                "max_year": "5%",
+                "agency": "5%",
+                "agency_id_dbase": "5%",
+                "param": "10%",
+                "unit": "10%",
+            },
+            "filters": {
+                "station_id": {"type": "input", "func": "like"},
+                "subloc": {"type": "input", "func": "like"},
+                "station_name": {"type": "input", "func": "like"},
+                "param": {"type": "input", "func": "like"},
+                "agency_id_dbase": {"type": "input", "func": "like"},
+                "agency": {"type": "input", "func": "like"},
+                "unit": {"type": "input", "func": "like"},
+                "min_year": {"type": "number"},
+                "max_year": {"type": "number"},
+            },
+        }
 
     def get_data_reference(self, row):
-        # The display table includes 'filename' but may not include 'name'.
-        # For datastore refs, ref.name == filename.  For mixed catalogs the
-        # 'name' column (present when the full catalog DF is used) is preferred.
-        key = row.get("name") if "name" in row.index else row["filename"]
         logger.debug("get_data_reference: key=%s", key)
         ref = self._catalog.get(key)
         if self.unit_conversion:
@@ -580,35 +610,6 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             unit = row.get("unit", "") if hasattr(row, "get") else row["unit"]
             return _UnitConvertingRef(ref, param, unit)
         return ref
-
-    def get_table_column_width_map(self):
-        return {
-            "station_id": "10%",
-            "subloc": "5%",
-            # "lat": "10%",
-            # "lon": "10%",
-            "station_name": "25%",
-            "min_year": "5%",
-            "max_year": "5%",
-            "agency": "5%",
-            "agency_id_dbase": "5%",
-            "param": "10%",
-            "unit": "10%",
-        }
-
-    def get_table_filters(self):
-        filters = {
-            "station_id": {"type": "input", "func": "like"},
-            "subloc": {"type": "input", "func": "like"},
-            "station_name": {"type": "input", "func": "like"},
-            "param": { "type": "input", "func": "like" },
-            "ageny_id_dbase": { "type": "input", "func": "like" },
-            "agency": { "type": "input", "func": "like" },
-            "unit": { "type": "input", "func": "like" },
-            "min_year": {"type": "number"},
-            "max_year": {"type": "number"},
-        }
-        return filters
 
     def is_irregular(self, r):
         return False  # only regular time series data in example
