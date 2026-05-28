@@ -80,6 +80,18 @@ class DatastoreFilepathReader(DataReferenceReader):
         return result
 
     @classmethod
+    def catalog_crs(cls) -> str:
+        """Datastore geometry uses WGS84 lat/lon (EPSG:4326) when available.
+
+        scan() prefers lat/lon over UTM x/y, so EPSG:4326 is the correct CRS
+        for the geometry embedded by scan()-based (dvue ui) workflows.
+        Note: DatastoreUIMgr's own catalog explicitly uses EPSG:26910 (UTM
+        Zone 10N) because it re-projects from the inventory; that path does
+        not go through catalog_crs().
+        """
+        return "EPSG:4326"
+
+    @classmethod
     def scan(cls, path: str):
         """Scan a datastore CSV path and return one or more references.
 
