@@ -615,6 +615,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         }
 
     def get_data_reference(self, row):
+        key = row["name"] if "name" in row.index else self._ref_name(row)
         logger.debug("get_data_reference: key=%s", key)
         ref = self._catalog.get(key)
         if self.unit_conversion:
