@@ -1,5 +1,8 @@
 # cache directory
+continuous
 cache_continuous/
+.session_cache
+.diskcache
 cache/**
 # jupyter notebooks temp dir
 **/.ipynb_checkpoints
@@ -13,6 +16,8 @@ tests/data
 **/dask-worker-space
 # python pickled data
 **/*.pkl
+#VsCode settings
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
