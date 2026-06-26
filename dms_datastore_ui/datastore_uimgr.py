@@ -392,7 +392,9 @@ class DatastorePlotAction(TimeSeriesPlotAction):
         station_label = f"{station_id}@{subloc}" if subloc else station_id
         crvlabel = f"{station_label}/{param} ({unit})"
         ylabel = f"{param} ({unit})"
-        crv = hv.Curve(data.iloc[:, [0]], label=crvlabel).redim(value=crvlabel)
+        ts = data.iloc[:, [0]].copy()
+        ts.index.name = "Time"
+        crv = hv.Curve(ts, label=crvlabel).redim(value=crvlabel)
         return crv.opts(
             xlabel="Time",
             ylabel=ylabel,
