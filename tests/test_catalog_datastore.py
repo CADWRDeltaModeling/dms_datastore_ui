@@ -10,6 +10,7 @@ from dms_datastore_ui.datastore_uimgr import (
     DatastoreCatalogBuilder,
     DatastoreDataReference,
     DatastoreFilepathReader,
+    DatastoreUIMgr,
 )
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 from dvue.catalog import DataCatalog, DataReference, InMemoryDataReferenceReader
@@ -241,3 +242,145 @@ class TestMixedCatalog:
         result = sum_ref.getData()
         expected = pd.DataFrame({"result": (timeseries_df + other_df)["value"]})
         pd.testing.assert_frame_equal(result, expected)
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by TestGetDataReference
+# ---------------------------------------------------------------------------
+
+def _make_ds_ref(name, station_id, subloc, param, filepath=r"C:\repo\screened\flow.csv"):
+    return DatastoreDataReference(
+        name=name,
+        cache=False,
+        filepath=filepath,
+        repo_level="screened",
+        filename=os.path.basename(filepath),
+        station_id=station_id,
+        subloc=subloc,
+        station_name="Test Station",
+        param=param,
+        unit="cfs",
+        min_year=2024,
+        max_year=2024,
+        agency="usgs",
+        agency_id_dbase="11303500",
+        x=625000.0,
+        y=4200000.0,
+        geometry=Point(625000.0, 4200000.0),
+    )
+
+
+def _make_mock_mgr(refs, unit_conversion=False):
+    """Return a minimal object that satisfies DatastoreUIMgr.get_data_reference."""
+    catalog = DataCatalog(primary_key=["station_id", "subloc", "param"])
+    for ref in refs:
+        catalog.add(ref)
+    return SimpleNamespace(_catalog=catalog, unit_conversion=unit_conversion)
+
+
+class TestGetDataReference:
+    """Regression tests for DatastoreUIMgr.get_data_reference.
+
+    Uses SimpleNamespace to supply the two attributes the method needs
+    (_catalog, unit_conversion) without constructing a full DatastoreUIMgr
+    (which requires a real StationDatastore/filesystem).
+    """
+
+    def test_lookup_by_name_column(self):
+        """Primary path: row contains a 'name' column."""
+        ref = _make_ds_ref("anh_flow", "anh", "", "flow")
+        mgr = _make_mock_mgr([ref])
+
+        row = pd.Series({"name": "anh_flow", "station_id": "anh", "subloc": "", "param": "flow", "unit": "cfs"})
+        result = DatastoreUIMgr.get_data_reference(mgr, row)
+
+        assert result is ref
+
+    def test_lookup_without_name_column_uses_pk_fallback(self):
+        """Fallback path: row lacks 'name' — should resolve via pk lookup, not _ref_name."""
+        ref = _make_ds_ref("anh_flow", "anh", "", "flow")
+        mgr = _make_mock_mgr([ref])
+
+        # Simulate selected_dataframe from the download action when 'name' was
+        # not in the display table columns.
+        row = pd.Series({"station_id": "anh", "subloc": "", "param": "flow", "unit": "cfs"})
+        result = DatastoreUIMgr.get_data_reference(mgr, row)
+
+        assert result is ref
+
+    def test_missing_name_does_not_raise_attribute_error(self):
+        """Regression: 'DatastoreUIMgr' object has no attribute '_ref_name' must not occur."""
+        ref = _make_ds_ref("anh_flow", "anh", "", "flow")
+        mgr = _make_mock_mgr([ref])
+
+        row = pd.Series({"station_id": "anh", "subloc": "", "param": "flow", "unit": "cfs"})
+
+        # AttributeError was raised before the fix; KeyError/other exceptions are bugs too.
+        result = DatastoreUIMgr.get_data_reference(mgr, row)
+        assert result is not None
+
+    def test_get_table_schema_includes_name_as_hidden_column(self, monkeypatch):
+        """'name' must be in required_columns so selected_dataframe always carries it."""
+        # We only need the method return value; bypass get_data_catalog() entirely.
+        mgr = SimpleNamespace()
+        schema = DatastoreUIMgr.get_table_schema(mgr, df=pd.DataFrame())
+
+        assert "name" in schema["required_columns"], (
+            "'name' must be a required column so selected_dataframe has the catalog key"
+        )
+        assert "name" in schema["hidden_by_default"], (
+            "'name' must be hidden by default to keep the table uncluttered"
+        )
+
+
+class TestGetDataColumnNaming:
+    """Downloaded series should have descriptive column names, not the generic 'value'."""
+
+    def test_series_label_no_subloc(self, timeseries_df):
+        """station_id/param (unit) when there is no subloc."""
+        row = pd.Series({"station_id": "anh", "subloc": "", "param": "flow", "unit": "cfs"})
+        label = DatastoreUIMgr._series_label(row, timeseries_df)
+        assert label == "anh/flow (cfs)"
+
+    def test_series_label_with_subloc(self, timeseries_df):
+        """station_id@subloc/param (unit) when subloc is set."""
+        row = pd.Series({"station_id": "msd", "subloc": "bottom", "param": "ec", "unit": "uS/cm"})
+        label = DatastoreUIMgr._series_label(row, timeseries_df)
+        assert label == "msd@bottom/ec (uS/cm)"
+
+    def test_series_label_uses_converted_unit_from_attrs(self, timeseries_df):
+        """When unit_conversion is active, the converted unit in data.attrs is used."""
+        row = pd.Series({"station_id": "anh", "subloc": "", "param": "flow", "unit": "cfs"})
+        data_with_attr = timeseries_df.copy()
+        data_with_attr.attrs["unit"] = "cms"  # converted unit
+        label = DatastoreUIMgr._series_label(row, data_with_attr)
+        assert label == "anh/flow (cms)"
+
+    def test_value_column_is_renamed_in_get_data(self, monkeypatch, timeseries_df):
+        """get_data renames the 'value' column using _series_label."""
+        ref = _make_ds_ref("anh_flow", "anh", "", "flow")
+        catalog = DataCatalog(primary_key=["station_id", "subloc", "param"])
+        catalog.add(ref)
+        monkeypatch.setattr(ref, "getData", lambda time_range=None: timeseries_df.copy())
+
+        # SimpleNamespace with get_data_reference callable — SimpleNamespace does not
+        # bind functions as methods so the function receives only the explicit arg.
+        mgr = SimpleNamespace(
+            _catalog=catalog,
+            unit_conversion=False,
+            time_range=None,
+            data_catalog=catalog,
+            _dataui=None,
+            get_data_reference=lambda row: ref,
+        )
+        selected_df = pd.DataFrame([{
+            "name": "anh_flow", "station_id": "anh",
+            "subloc": "", "param": "flow", "unit": "cfs",
+        }])
+
+        results = list(DatastoreUIMgr.get_data(mgr, selected_df))
+
+        assert len(results) == 1
+        col = results[0].columns[0]
+        assert col == "anh/flow (cfs)", f"Expected 'anh/flow (cfs)', got {col!r}"
+        assert "value" not in results[0].columns

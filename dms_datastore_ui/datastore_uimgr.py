@@ -588,9 +588,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
                 "min_year", "max_year", "agency", "agency_id_dbase",
                 "param", "unit",
                 "filename",   # hidden; needed by get_data_reference()
+                "name",       # hidden; catalog key used by get_data_reference()
             ],
             "optional_columns": [],
-            "hidden_by_default": ["filename"],
+            "hidden_by_default": ["filename", "name"],
             "drop_if_all_null": False,
             "column_widths": {
                 "station_id": "10%",
@@ -617,14 +618,46 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         }
 
     def get_data_reference(self, row):
-        key = row["name"] if "name" in row.index else self._ref_name(row)
-        logger.debug("get_data_reference: key=%s", key)
-        ref = self._catalog.get(key)
+        if "name" in row.index and not pd.isna(row["name"]):
+            key = row["name"]
+            logger.debug("get_data_reference: key=%s", key)
+            ref = self._catalog.get(key)
+        else:
+            # Fallback: look up by primary key columns when the name column is
+            # absent from the row (e.g. display table built without it).
+            station_id = row.get("station_id", "") if hasattr(row, "get") else row["station_id"]
+            subloc = row.get("subloc", "") if hasattr(row, "get") else row["subloc"]
+            subloc = "" if pd.isna(subloc) else str(subloc)
+            param = row.get("param", "") if hasattr(row, "get") else row["param"]
+            logger.debug("get_data_reference: pk lookup station_id=%s subloc=%s param=%s", station_id, subloc, param)
+            ref = self._catalog.get(station_id=station_id, subloc=subloc, param=param)
         if self.unit_conversion:
             param = row.get("param", "") if hasattr(row, "get") else row["param"]
             unit = row.get("unit", "") if hasattr(row, "get") else row["unit"]
             return _UnitConvertingRef(ref, param, unit)
         return ref
+
+    def get_data(self, df, time_range=None):
+        """Yield series with descriptive column names instead of the generic 'value'."""
+        for (_, r), data in zip(df.iterrows(), super().get_data(df, time_range=time_range)):
+            if data is not None and not data.empty and "value" in data.columns:
+                label = self._series_label(r, data)
+                data = data.rename(columns={"value": label})
+            yield data
+
+    @staticmethod
+    def _series_label(row, data) -> str:
+        """Return a descriptive column label for one downloaded series."""
+        station_id = str(row.get("station_id", "") or "")
+        subloc = str(row.get("subloc", "") or "")
+        param = str(row.get("param", "") or "")
+        # Use converted unit stored in attrs when unit_conversion is active
+        unit = str(data.attrs.get("unit", row.get("unit", "") or ""))
+        return (
+            f"{station_id}@{subloc}/{param} ({unit})"
+            if subloc
+            else f"{station_id}/{param} ({unit})"
+        )
 
     def is_irregular(self, r):
         return False  # only regular time series data in example
