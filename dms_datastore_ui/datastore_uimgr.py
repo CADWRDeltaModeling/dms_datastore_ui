@@ -485,6 +485,24 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             "time-series data managed by the Delta Modeling Section."
         )
 
+    def get_convertible_unit_groups(self):
+        """Unit pairs used by TimeSeriesPlotAction for dual y-axis rendering.
+
+        When *unit_conversion* is off and two or more units from the same
+        group appear in the selection, curves are shown on a single subplot
+        with a shared x-axis and independent y-axes (multi_y) instead of
+        separate subplots.
+
+        Unit strings are compared after lowercasing, so values here must be
+        lowercase (e.g. ``"us/cm"`` for ``uS/cm``, ``"micros/cm"`` for
+        ``microS/cm``).
+        """
+        return [
+            {"feet", "meters"},
+            {"deg_c", "deg_f"},
+            {"psu", "us/cm", "micros/cm"},
+        ]
+
     @param.depends("repo_level", watch=True)
     def _sync_repo_level(self):
         """Keep the StationDatastore in sync when repo_level changes."""
