@@ -503,6 +503,33 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             {"psu", "us/cm", "micros/cm"},
         ]
 
+    # Secondary axis specifications for linear unit conversions.
+    # Shown on the right side of single-unit plots when unit_conversion=True
+    # so users can read both scales without mental arithmetic.
+    _SECONDARY_AXIS_SPECS = {
+        "feet":      {"label": "meters",  "js_code": "tick * 0.3048"},
+        "meters":    {"label": "feet",    "js_code": "tick * 3.28084"},
+        "deg_c":     {"label": "\u00b0F", "js_code": "tick * 1.8 + 32"},
+        "deg_f":     {"label": "\u00b0C", "js_code": "(tick - 32) / 1.8"},
+        "micros/cm": {"label": "PSU\u2248", "js_code": "tick / 1600"},
+        "us/cm":     {"label": "PSU\u2248", "js_code": "tick / 1600"},
+    }
+
+    def get_secondary_axis_spec(self, unit: str):
+        """Return secondary axis spec when *unit_conversion* is active.
+
+        Only meaningful for linear conversions.  PSU \u2248 µS/cm \u00f7 1600 is a
+        rough linear approximation valid in the estuarine salinity range;
+        the ``\u2248`` in the axis label makes the approximation explicit.
+        """
+        if not self.unit_conversion:
+            return None
+        spec = self._SECONDARY_AXIS_SPECS.get(unit.lower())
+        if spec is None:
+            return None
+        # js_code wrapped by the render hook into a full FuncTickFormatter body
+        return {"label": spec["label"], "js_code": spec["js_code"]}
+
     @param.depends("repo_level", watch=True)
     def _sync_repo_level(self):
         """Keep the StationDatastore in sync when repo_level changes."""
