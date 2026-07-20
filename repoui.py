@@ -143,7 +143,8 @@ def make_newui_app():
 
     def load_dataui():
         saved = _session_mgr.load_state(user_id)
-        uimgr = DatastoreUIMgr(_REPO_DIR)
+        from dms_datastore_ui.d1641_standards import get_default_wyt_file
+        uimgr = DatastoreUIMgr(_REPO_DIR, wyt_file=get_default_wyt_file())
         uimgr.show_reset_session_button = True  # reset button wired in DataUI action row
         if saved:
             _restore(uimgr, saved)

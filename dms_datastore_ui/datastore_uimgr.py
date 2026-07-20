@@ -443,7 +443,19 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         doc="Filter map to stations whose data overlaps this year range.",
     )
 
-    def __init__(self, dir, repo_level="screened", **kwargs):
+    wyt_band_alpha = param.Number(
+        default=0.0,
+        bounds=(0.0, 0.5),
+        step=0.05,
+        label="Water year type band opacity",
+        doc=(
+            "Opacity of water year type background shading in time series plots. "
+            "0 = off. Colors: Wet = blue \u2192 Critical = red. "
+            "Requires re-plotting to take effect after changing."
+        ),
+    )
+
+    def __init__(self, dir, repo_level="screened", wyt_file=None, d1641_standards_specs=None, **kwargs):
         self.dir = dir
         self.datastore = StationDatastore(dir)
         # Build catalog before super().__init__() because the parent calls
@@ -453,6 +465,37 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             .add_builder(DatastoreCatalogBuilder())
             .add_source(self.datastore)
         )
+        # Inject D-1641 regulatory standards if a water year type file is provided.
+        self._wyt_df = None
+        self._current_wyt_info = None
+        if wyt_file:
+            from dms_datastore_ui.d1641_standards import (
+                DEFAULT_STANDARDS,
+                build_d1641_references,
+                read_hist_wateryear_types,
+                fetch_current_wyt,
+            )
+            specs = d1641_standards_specs if d1641_standards_specs is not None else DEFAULT_STANDARDS
+            try:
+                self._wyt_df = read_hist_wateryear_types(wyt_file)
+                d1641_refs = build_d1641_references(wyt_file, standards=specs)
+                for ref in d1641_refs:
+                    self._catalog.add(ref)
+                logger.info("Added %d D-1641 standard references to catalog", len(d1641_refs))
+            except Exception:
+                logger.exception("Failed to build D-1641 standard references from %s", wyt_file)
+            # Fetch current WY type from CDEC WSI (monthly-cached; network optional).
+            try:
+                self._current_wyt_info = fetch_current_wyt()
+                logger.info(
+                    "Current WYT: WY %d = %s (final=%s, src=%s)",
+                    self._current_wyt_info["wy"],
+                    self._current_wyt_info["wyt"],
+                    self._current_wyt_info["is_final"],
+                    self._current_wyt_info["source"],
+                )
+            except Exception:
+                logger.exception("Failed to fetch current WYT from CDEC WSI")
         # Sync repo_level choices from the validated datastore objects.
         valid_levels = self.datastore.param.repo_level.objects
         self.param.repo_level.objects = valid_levels
@@ -460,6 +503,15 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # Sync parameter_type choices from the datastore inventory.
         unique_params = list(self.datastore.unique_params)
         self.param.parameter_type.objects = ["all"] + unique_params
+        # If D-1641 refs were added, include their param names in the type selector.
+        if wyt_file:
+            from dms_datastore_ui.d1641_standards import DEFAULT_STANDARDS
+            specs = d1641_standards_specs if d1641_standards_specs is not None else DEFAULT_STANDARDS
+            d1641_param_names = [s.name for s in specs]
+            existing = self.param.parameter_type.objects
+            self.param.parameter_type.objects = existing + [
+                p for p in d1641_param_names if p not in existing
+            ]
         # Sync year_range bounds from inventory.
         min_yr = int(self.datastore.min_year)
         max_yr = int(self.datastore.max_year)
@@ -501,6 +553,9 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             {"feet", "meters"},
             {"deg_c", "deg_f"},
             {"psu", "us/cm", "micros/cm"},
+            # mg/L (chloride) and EC share the same subplot with independent
+            # Y-axes (dual-axis, no conversion) — e.g. D-1641 MI 250 at rsl.
+            {"mg/l", "us/cm", "micros/cm"},
         ]
 
     # Secondary axis: always show the counterpart unit so users can read
@@ -523,12 +578,250 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
     _EC_UNITS = {"us/cm", "micros/cm", "umhos/cm"}
 
+    # ColorBrewer RdBu-5 diverging palette: Wet=blue, Critical=red.
+    _WYT_COLORS = {
+        "W":  "#2166ac",  # dark blue
+        "AN": "#74add1",  # light blue
+        "BN": "#d9d9d9",  # light grey (neutral)
+        "D":  "#f46d43",  # orange
+        "C":  "#d73027",  # red
+    }
+
     def get_annotation_hook(self, unit: str, lo, hi):
-        """Return PSU reference-line hook for EC axes; None otherwise."""
+        """Return combined PSU reference-line + water year type background hook."""
+        hooks = []
+        # PSU reference lines for EC axes
         if unit.lower() in self._EC_UNITS and lo is not None and hi is not None:
             from dvue.plotutils import make_psu_reference_lines_hook
-            return make_psu_reference_lines_hook(lo, hi)
-        return None
+            hooks.append(make_psu_reference_lines_hook(lo, hi))
+        # Water year type background bands (all axes, when enabled)
+        if self._wyt_df is not None and self.wyt_band_alpha > 0:
+            hooks.append(self._make_wyt_background_hook())
+        if not hooks:
+            return None
+        if len(hooks) == 1:
+            return hooks[0]
+        def _combined(plot, element):
+            for h in hooks:
+                h(plot, element)
+        return _combined
+
+    def _make_wyt_background_hook(self):
+        """Return a Bokeh hook that draws coloured water year type background bands.
+
+        Historical water years (from the bundled WSIHIST file) are drawn as
+        solid coloured bands.  The current in-progress water year is drawn
+        with diagonal hatching to indicate it is provisional:
+
+        * **Oct–Nov**: no WSI forecast yet — previous year’s type used as proxy.
+        * **Dec–Apr**: provisional monthly forecast from CDEC WSI (hatched).
+        * **May–Sep**: May 1 final determination (solid, same as historical).
+
+        A compact legend is added on the opposite side from the main curve
+        legend; it includes a hatched swatch when a provisional band is shown.
+        """
+        import pandas as _pd
+        from bokeh.models import BoxAnnotation, ColumnDataSource, Legend, LegendItem
+
+        _WYT_LABELS = {
+            "W":  "Wet",
+            "AN": "Above Normal",
+            "BN": "Below Normal",
+            "D":  "Dry",
+            "C":  "Critical",
+        }
+        _WYT_ORDER = ["W", "AN", "BN", "D", "C"]
+
+        # Mirror the curve-legend position to the opposite horizontal side.
+        main_pos = (getattr(self, "legend_position", None) or "top_right").lower()
+        if "right" in main_pos:
+            wyt_legend_pos = main_pos.replace("right", "left")
+        elif "left" in main_pos:
+            wyt_legend_pos = main_pos.replace("left", "right")
+        else:
+            wyt_legend_pos = "top_left"
+
+        df_wyt = self._wyt_df[
+            self._wyt_df["sac_yrtype"].isin(self._WYT_COLORS)
+        ].copy()
+        alpha   = self.wyt_band_alpha
+        colors  = self._WYT_COLORS
+        hist_wys = set(df_wyt["wy"].astype(int).values)
+
+        # Capture current-WY info at hook-creation time (plot render time).
+        cur_info    = getattr(self, "_current_wyt_info", None) or {}
+        cur_wy      = cur_info.get("wy")           # int or None
+        cur_wyt     = cur_info.get("wyt")          # WYT code or None (Oct–Nov)
+        cur_final   = cur_info.get("is_final", False)
+
+        # For Oct–Nov: use previous year’s type as a proxy (user’s request).
+        if cur_wy is not None and cur_wyt is None and cur_wy not in hist_wys:
+            prev_rows = df_wyt[df_wyt["wy"] == cur_wy - 1]
+            cur_wyt_proxy = prev_rows.iloc[0]["sac_yrtype"] if not prev_rows.empty else None
+        else:
+            cur_wyt_proxy = None  # not needed
+
+        def _hook(
+            plot, element,
+            _df=df_wyt, _alpha=alpha, _colors=colors,
+            _legend_pos=wyt_legend_pos,
+            _hist_wys=hist_wys,
+            _cur_wy=cur_wy, _cur_wyt=cur_wyt, _cur_final=cur_final,
+            _cur_wyt_proxy=cur_wyt_proxy,
+        ):
+            fig = plot.handles.get("plot")
+            if fig is None:
+                return
+
+            # --- Historical bands (solid BoxAnnotation) ---
+            for _, row in _df.iterrows():
+                try:
+                    wy  = int(row["wy"])
+                    wyt = row["sac_yrtype"]
+                    x0  = _pd.Timestamp(f"{wy - 1}-10-01").value / 1e6
+                    x1  = _pd.Timestamp(f"{wy}-10-01").value / 1e6
+                    ba  = BoxAnnotation(
+                        left=x0, right=x1,
+                        fill_color=_colors[wyt],
+                        fill_alpha=_alpha,
+                        line_alpha=0,
+                    )
+                    try:
+                        ba.level = "underlay"
+                    except Exception:
+                        pass
+                    fig.add_layout(ba)
+                except Exception:
+                    pass
+
+            # --- Current in-progress WY band (provisional / inferred) ---
+            show_provisional = False
+            if _cur_wy is not None and _cur_wy not in _hist_wys:
+                # Determine which colour and whether the band is hatched.
+                if _cur_wyt is not None and _cur_final:
+                    # May 1+ final determination: draw as solid historical-style band
+                    draw_wyt     = _cur_wyt
+                    draw_hatched = False
+                elif _cur_wyt is not None:
+                    # Dec–Apr provisional forecast
+                    draw_wyt     = _cur_wyt
+                    draw_hatched = True
+                    show_provisional = True
+                elif _cur_wyt_proxy is not None:
+                    # Oct–Nov: no forecast, use previous year’s type as proxy
+                    draw_wyt     = _cur_wyt_proxy
+                    draw_hatched = True
+                    show_provisional = True
+                else:
+                    draw_wyt = None
+
+                if draw_wyt and draw_wyt in _colors:
+                    x0    = _pd.Timestamp(f"{_cur_wy - 1}-10-01").value / 1e6
+                    x1    = _pd.Timestamp(f"{_cur_wy}-10-01").value / 1e6
+                    color = _colors[draw_wyt]
+                    try:
+                        yr    = fig.y_range
+                        bot   = getattr(yr, "start", None)
+                        top   = getattr(yr, "end",   None)
+                        bot   = bot if bot is not None else -1e15
+                        top   = top if top is not None else  1e15
+                        if draw_hatched:
+                            try:
+                                r = fig.quad(
+                                    left=[x0], right=[x1],
+                                    bottom=[bot], top=[top],
+                                    fill_color=color,
+                                    fill_alpha=_alpha * 0.55,
+                                    line_alpha=0,
+                                    hatch_pattern="/",
+                                    hatch_alpha=0.45,
+                                    hatch_color="white",
+                                    hatch_scale=14,
+                                )
+                                try:
+                                    r.level = "underlay"
+                                except Exception:
+                                    pass
+                            except Exception:
+                                # Fallback if Bokeh version lacks hatch support
+                                ba = BoxAnnotation(
+                                    left=x0, right=x1,
+                                    fill_color=color,
+                                    fill_alpha=_alpha * 0.5,
+                                    line_alpha=0,
+                                )
+                                try:
+                                    ba.level = "underlay"
+                                except Exception:
+                                    pass
+                                fig.add_layout(ba)
+                        else:
+                            ba = BoxAnnotation(
+                                left=x0, right=x1,
+                                fill_color=color,
+                                fill_alpha=_alpha,
+                                line_alpha=0,
+                            )
+                            try:
+                                ba.level = "underlay"
+                            except Exception:
+                                pass
+                            fig.add_layout(ba)
+                    except Exception:
+                        pass
+
+            # --- Color legend (WYT swatches + optional provisional indicator) ---
+            dummy_x = float(_pd.Timestamp("1700-01-01").value) / 1e6
+            legend_items = []
+            for wyt in _WYT_ORDER:
+                if wyt not in _colors:
+                    continue
+                src = ColumnDataSource(dict(x=[dummy_x], y=[0.0]))
+                renderer = fig.square(
+                    x="x", y="y", size=13,
+                    fill_color=_colors[wyt], fill_alpha=_alpha,
+                    line_alpha=0.0, source=src,
+                )
+                legend_items.append(LegendItem(
+                    label=f"{wyt} \u2013 {_WYT_LABELS[wyt]}",
+                    renderers=[renderer],
+                ))
+            if show_provisional:
+                # Add a hatched swatch to explain the hatching pattern.
+                src = ColumnDataSource(dict(x=[dummy_x], y=[0.0]))
+                try:
+                    renderer = fig.square(
+                        x="x", y="y", size=13,
+                        fill_color="#888888", fill_alpha=_alpha * 0.55,
+                        line_alpha=0.0,
+                        hatch_pattern="/", hatch_alpha=0.45,
+                        hatch_color="white", hatch_scale=14,
+                        source=src,
+                    )
+                    legend_items.append(LegendItem(
+                        label="/ \u2013 Provisional / Inferred",
+                        renderers=[renderer],
+                    ))
+                except Exception:
+                    pass
+            try:
+                legend = Legend(
+                    items=legend_items,
+                    title="Water Year Type",
+                    location=_legend_pos,
+                    background_fill_alpha=0.75,
+                    background_fill_color="white",
+                    border_line_alpha=0.4,
+                    padding=5,
+                    spacing=1,
+                    title_text_font_size="10px",
+                    label_text_font_size="10px",
+                )
+                fig.add_layout(legend)
+            except Exception:
+                pass
+
+        return _hook
 
     @param.depends("repo_level", watch=True)
     def _sync_repo_level(self):
@@ -569,6 +862,26 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             self.param.repo_level,
             self.param.unit_conversion,
         )
+        # Extend "Plot" tab with WYT background opacity slider when WYT data is loaded.
+        if self._wyt_df is not None:
+            wyt_section = pn.WidgetBox(
+                pn.pane.Markdown(
+                    "**Water Year Type Background:**\n\n"
+                    "Blue = Wet \u00b7 Critical = Red. Re-plot to apply.",
+                    margin=(4, 4, 0, 4),
+                ),
+                pn.widgets.FloatSlider.from_param(
+                    self.param.wyt_band_alpha,
+                    name="Opacity",
+                    sizing_mode="stretch_width",
+                ),
+            )
+            existing = widget_tabs.get("Plot")
+            widget_tabs["Plot"] = (
+                pn.Column(existing, wyt_section, sizing_mode="stretch_width")
+                if existing is not None
+                else wyt_section
+            )
         return widget_tabs
 
     def get_map_option_widgets(self):

@@ -60,6 +60,9 @@ dms_datastore_ui = "dms_datastore_ui.readers:register_readers"
 [tool.setuptools]
 packages = ["dms_datastore_ui"]
 
+[tool.setuptools.package-data]
+dms_datastore_ui = ["data/d1641/*.csv", "data/*.txt"]
+
 [tool.setuptools_scm]
 write_to = "dms_datastore_ui/_version.py"
 version_scheme = "calver-by-date"  # Use calendar versioning for date-based tags
