@@ -592,8 +592,8 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         hooks = []
         # PSU reference lines for EC axes
         if unit.lower() in self._EC_UNITS and lo is not None and hi is not None:
-            from dvue.plotutils import make_psu_reference_lines_hook
-            hooks.append(make_psu_reference_lines_hook(lo, hi))
+            from dvue.plotutils import make_psu_dual_axis_hook
+            hooks.append(make_psu_dual_axis_hook(lo, hi))
         # Water year type background bands (all axes, when enabled)
         if self._wyt_df is not None and self.wyt_band_alpha > 0:
             hooks.append(self._make_wyt_background_hook())
