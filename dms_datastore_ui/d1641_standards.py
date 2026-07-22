@@ -63,7 +63,7 @@ DEFAULT_STANDARDS: List[D1641StandardSpec] = [
         csv_filename="D1641_AG_wiDelta.csv",
         unit_scale=1000.0,
         unit="microS/cm",
-        dsm2_locations=["RSAC092", "RSAN018"],
+        dsm2_locations=["RSAC092", "RSAN018", "RSMKL008", "RSAN032"],
     ),
     # ── Fish & Wildlife Service – San Joaquin River ─────────────────────────
     # 14-day running average of daily mean EC; Jersey Point only for the
@@ -142,6 +142,9 @@ DSM2_TO_DATASTORE_ID: Dict[str, str] = {
     # ── AG W&I Delta / FWS SJR ──────────────────────────────────────────────
     "RSAC092": "emm",    # Sacramento at Emmaton (USBR, CDEC D22A — D-1641 D-22)
     "RSAN018": "jer",    # SJR at Jersey Point (USBR, CDEC D15 — D-1641 D-15)
+    # ── AG Interior Delta ─────────────────────────────────────────────────────
+    "RSMKL008": "sti",  # S. Fork Mokelumne at Terminous/Staten Island (USBR — D-1641 C-13)
+    "RSAN032": "sal",   # SJR at San Andreas Landing (USBR — D-1641 C-4)
     # ── AG South Delta ──────────────────────────────────────────────────────
     "RSAN112": "ver",    # SJR at Vernalis (USBR, CDEC C10 — D-1641 C-10)
     "RSAN072": "bdt",    # SJR at Brandt Bridge (NCRO B95740 — D-1641 C-6)
@@ -165,6 +168,9 @@ STATION_COORDS: Dict[str, Tuple[float, float]] = {
     # AG W&I Delta / FWS SJR
     "emm": (610598.8, 4215917.6),
     "jer": (615024.3, 4212414.2),
+    # AG Interior Delta
+    "sti": (631586.4, 4219845.0),
+    "sal": (623513.4, 4218211.2),
     # AG South Delta
     "ver": (653005.8, 4171637.9),
     "bdt": (647500.8, 4192114.6),
@@ -186,6 +192,8 @@ STATION_COORDS: Dict[str, Tuple[float, float]] = {
 STATION_NAMES: Dict[str, str] = {
     "emm": "Emmaton",
     "jer": "Jersey Point",
+    "sti": "S. Fork Mokelumne at Terminous",
+    "sal": "SJR at San Andreas Landing",
     "ver": "SJR at Vernalis",
     "bdt": "SJR at Brandt Bridge",
     "old": "Old River at Tracy Blvd (P-12)",
