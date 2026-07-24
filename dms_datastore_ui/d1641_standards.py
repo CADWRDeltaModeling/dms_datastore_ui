@@ -492,6 +492,37 @@ def fetch_current_wyt(cache_dir: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# In-process caching (memory only — cleared on every server restart)
+# ---------------------------------------------------------------------------
+#
+# Generating a D-1641 standard series involves parsing the bundled WSIHIST
+# file and expanding 100+ years of regulation breakpoints via Python loops
+# (see ``_read_regulations`` / ``_generate_regulation_timeseries``).  The
+# underlying data changes at most once a month (when the current water
+# year's forecast WYT is refreshed via :func:`fetch_current_wyt`), so caching
+# the results in memory for the life of the server process avoids redoing
+# this work on every single Plot/Tabulate/Download click while still
+# picking up WYT changes promptly.  Caches are intentionally in-memory only
+# (never written to disk) so a server restart always recomputes from
+# scratch — do not replace with diskcache/pickle-based persistence.
+
+_wyt_hist_cache: Dict[Tuple[str, float], pd.DataFrame] = {}
+_regulation_cache: Dict[Tuple[str, str, int, Optional[str]], pd.DataFrame] = {}
+_standard_series_cache: Dict[Tuple[str, str, str, int, Optional[str]], pd.DataFrame] = {}
+
+
+def clear_d1641_cache() -> None:
+    """Clear all in-process D-1641 standard caches.
+
+    Useful for tests or for forcing an immediate recompute (e.g. after
+    editing a bundled regulation CSV) without restarting the server.
+    """
+    _wyt_hist_cache.clear()
+    _regulation_cache.clear()
+    _standard_series_cache.clear()
+
+
+# ---------------------------------------------------------------------------
 # Utility functions  (adapted from dsm2_calsim_analysis.utilities.utilities)
 # ---------------------------------------------------------------------------
 
@@ -502,6 +533,10 @@ def read_hist_wateryear_types(fpath: str) -> pd.DataFrame:
     The expected source is the fixed-width table from CDEC at
     http://cdec.water.ca.gov/reportapp/javareports?name=WSIHIST — the upper
     table, stopping before the min/average rows at the bottom.
+
+    Results are cached in-process, keyed by ``(fpath, mtime)``, since this
+    file is re-read on every D-1641 standard load otherwise (see module-level
+    caching note above). The cache is memory-only and cleared on restart.
 
     Parameters
     ----------
@@ -515,6 +550,15 @@ def read_hist_wateryear_types(fpath: str) -> pd.DataFrame:
         SJR equivalents.  Suitable for passing directly to
         :func:`build_d1641_references`.
     """
+    try:
+        mtime = os.path.getmtime(fpath)
+    except OSError:
+        mtime = 0.0
+    cache_key = (str(fpath), mtime)
+    cached = _wyt_hist_cache.get(cache_key)
+    if cached is not None:
+        return cached.copy()
+
     df = pd.read_fwf(
         fpath,
         header=None,
@@ -533,7 +577,8 @@ def read_hist_wateryear_types(fpath: str) -> pd.DataFrame:
         ],
         skiprows=14,
     )
-    return df
+    _wyt_hist_cache[cache_key] = df
+    return df.copy()
 
 
 def _read_regulations(fpath: str, df_wyt: pd.DataFrame) -> pd.DataFrame:
@@ -770,6 +815,7 @@ def build_d1641_references(
                     # Dynamically extend to the current water year using the
                     # monthly-cached CDEC WSI forecast (fast; ~1 ms cache hit).
                     dynamic_end_wy = hist_end_wy
+                    wyt_use = None
                     try:
                         cur = fetch_current_wyt()
                         cur_wy = cur.get("wy")
@@ -788,8 +834,28 @@ def build_d1641_references(
                     except Exception:
                         pass  # Network/cache failure: stay within historical range
 
+                    # In-process cache: the full computed standard series only
+                    # needs to be regenerated when the current water year's WYT
+                    # changes (at most monthly) — not on every single
+                    # Plot/Tabulate/Download click.  Memory-only; a server
+                    # restart always recomputes from scratch (see module-level
+                    # caching note near read_hist_wateryear_types).
+                    series_key = (_wyt_file, _csv_path, _dsm2_loc, dynamic_end_wy, wyt_use)
+                    cached_series = _standard_series_cache.get(series_key)
+                    if cached_series is not None:
+                        return cached_series.copy()
+
                     _end = pd.Timestamp(f"{dynamic_end_wy}-10-01")
-                    df_reg = _read_regulations(_csv_path, _df_wyt)
+
+                    # _read_regulations() computes ALL locations for this CSV in
+                    # one pass (nested year x location loop over ~100+ years),
+                    # so caching it here also benefits every other location that
+                    # shares this spec's CSV, not just repeated clicks on this ref.
+                    reg_key = (_wyt_file, _csv_path, dynamic_end_wy, wyt_use)
+                    df_reg = _regulation_cache.get(reg_key)
+                    if df_reg is None:
+                        df_reg = _read_regulations(_csv_path, _df_wyt)
+                        _regulation_cache[reg_key] = df_reg
                     df_reg = df_reg.copy()
                     df_reg["value"] = df_reg["value"] * _scale
                     df = _generate_regulation_timeseries(
@@ -799,7 +865,8 @@ def build_d1641_references(
                     # (off-season).  Replace with NaN so the plotted line has
                     # gaps rather than a meaningless flat line at 0.
                     df["value"] = df["value"].replace(0.0, float("nan"))
-                    return df
+                    _standard_series_cache[series_key] = df
+                    return df.copy()
                 return _load
 
             reader = CallableDataReferenceReader(_make_loader())
