@@ -33,8 +33,13 @@ from dms_datastore_ui.datastore_actions import (
 )
 import holoviews as hv
 import geopandas as gpd
+from pyproj import Transformer
 
 logger = logging.getLogger(__name__)
+
+# UTM Zone 10N (EPSG:26910) -> WGS84 (EPSG:4326), used to reproject the
+# registry's adjusted x/y coordinates for display alongside lat/lon.
+_UTM10N_TO_WGS84 = Transformer.from_crs("EPSG:26910", "EPSG:4326", always_xy=True)
 
 
 class DatastoreFilepathReader(DataReferenceReader):
@@ -81,10 +86,14 @@ class DatastoreFilepathReader(DataReferenceReader):
 
     @classmethod
     def catalog_crs(cls) -> str:
-        """Datastore geometry uses WGS84 lat/lon (EPSG:4326) when available.
+        """Datastore geometry is stored as WGS84 lat/lon (EPSG:4326).
 
-        scan() prefers lat/lon over UTM x/y, so EPSG:4326 is the correct CRS
-        for the geometry embedded by scan()-based (dvue ui) workflows.
+        scan() prefers UTM x/y (EPSG:26910) over lat/lon when both are
+        present -- the registry's adjusted x/y is generally more accurate
+        than the agency-reported lat/lon (see dms_datastore AGENTS.md
+        coordinate conventions) -- but reprojects to EPSG:4326 so geometry
+        is always compatible with the default PlateCarree map CRS used by
+        RegistryUIManager/dvue ui. Falls back to lat/lon when x/y is missing.
         Note: DatastoreUIMgr's own catalog explicitly uses EPSG:26910 (UTM
         Zone 10N) because it re-projects from the inventory; that path does
         not go through catalog_crs().
@@ -134,16 +143,19 @@ class DatastoreFilepathReader(DataReferenceReader):
                 lat = row.get("lat")
                 lon = row.get("lon")
                 geometry = None
-                # Prefer WGS84 lat/lon so geometry is compatible with the
-                # default PlateCarree map CRS used by RegistryUIManager/dvue ui.
-                if pd.notna(lat) and pd.notna(lon):
+                # Prefer UTM x/y (EPSG:26910, adjusted) over agency lat/lon --
+                # it is generally more accurate -- reprojected to WGS84 so
+                # geometry matches catalog_crs() (EPSG:4326). Fall back to
+                # lat/lon when x/y is missing.
+                if pd.notna(x) and pd.notna(y):
                     try:
-                        geometry = Point(float(lon), float(lat))
+                        lon_wgs84, lat_wgs84 = _UTM10N_TO_WGS84.transform(float(x), float(y))
+                        geometry = Point(lon_wgs84, lat_wgs84)
                     except Exception:
                         pass
-                elif pd.notna(x) and pd.notna(y):
+                if geometry is None and pd.notna(lat) and pd.notna(lon):
                     try:
-                        geometry = Point(float(x), float(y))
+                        geometry = Point(float(lon), float(lat))
                     except Exception:
                         pass
 
