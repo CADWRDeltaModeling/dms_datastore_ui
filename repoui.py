@@ -1,5 +1,6 @@
 import logging
 import sys
+from typing import Optional
 
 # Logging setup runs once at server start (not per-session as with panel serve).
 _dms_logger = logging.getLogger("dms_datastore_ui")
@@ -29,6 +30,13 @@ print(f"[repoui] dms_datastore_ui logging active, level={logging.getLevelName(_d
 import panel as pn
 from pathlib import Path
 import pandas as pd
+from dms_datastore_ui.server_plugins import (
+    discover_entrypoint_plugins,
+    load_server_config,
+    merge_plugin_apps,
+    merge_static_dirs,
+    startup_summary,
+)
 from dvue.session_persistence import (
     install_session_handler,
     SessionManager,
@@ -79,9 +87,8 @@ _REPO_DIR = "continuous"
 # ── [5] App factories (called once per Bokeh session / browser tab) ──────────
 #
 # make_newui_app  → DataUI (new UI); reset button lives in the DataUI action row
-# make_oldui_app  → classic StationInventoryExplorer; reset button in header
 #
-# Registry key scheme: "{user_id}:newui" / "{user_id}:oldui"
+# Registry key scheme: "{user_id}:newui"
 
 
 def make_newui_app():
@@ -89,13 +96,6 @@ def make_newui_app():
     reg_key  = _session_mgr.make_reg_key(user_id, "newui")
     entry    = _session_mgr.get_entry(reg_key)
     reuse_dataui = bool(entry and entry.get("mode") == "dataui")
-
-    header_link = pn.pane.HTML(
-        '<a href="/oldui" style="color:white; font-size:0.9em; '
-        'text-decoration:none; margin-left:1em; white-space:nowrap;">'
-        "&#8594; Classic Explorer</a>",
-        sizing_mode="fixed",
-    )
 
     if reuse_dataui:
         # ── Registry hit: DataUI already built ──────────────────────────────
@@ -138,7 +138,6 @@ def make_newui_app():
         sidebar_width=650,
         header_color="blue",
         logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
-        header=[header_link],
     )
 
     def load_dataui():
@@ -183,65 +182,6 @@ def make_newui_app():
     template.servable(title="DMS Datastore")
 
 
-def make_oldui_app():
-    user_id = _session_mgr.current_user_id
-    reg_key = _session_mgr.make_reg_key(user_id, "oldui")
-
-    header_link = pn.pane.HTML(
-        '<a href="/" style="color:white; font-size:0.9em; '
-        'text-decoration:none; margin-left:1em; white-space:nowrap;">'
-        "&#8592; New UI</a>",
-        sizing_mode="fixed",
-    )
-    reset_btn = _session_mgr.make_reset_button(reg_key, sizing_mode="fixed")
-
-    main_panel = pn.Column(
-        pn.indicators.LoadingSpinner(
-            value=True, color="primary", size=50, name="Loading..."
-        ),
-        sizing_mode="stretch_both",
-    )
-    sidebar_panel = pn.Column(
-        pn.indicators.LoadingSpinner(
-            value=True, color="primary", size=50, name="Loading..."
-        )
-    )
-    template = pn.template.VanillaTemplate(
-        title="DMS Datastore \u2014 Classic Explorer",
-        sidebar=[sidebar_panel],
-        main=[main_panel],
-        sidebar_width=650,
-        header_color="blue",
-        logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
-        header=[header_link, reset_btn],
-    )
-
-    def load_explorer():
-        explorer = dms_datastore_ui.map_inventory_explorer.StationInventoryExplorer(_REPO_DIR)
-        view = explorer.create_view()
-
-        sidebar_items = list(view.sidebar)
-        main_items    = list(view.main)
-        modal_items   = list(view.modal)
-        view.sidebar.clear()
-        view.main.clear()
-        view.modal.clear()
-
-        sidebar_panel.objects = sidebar_items
-        main_panel.objects    = main_items
-
-        template.modal.clear()
-        for item in modal_items:
-            template.modal.append(item)
-
-        _session_mgr.set_entry(reg_key, {
-            "template": template, "mode": "explorer", "mgr": None, "ui": None
-        })
-
-    pn.state.onload(load_explorer)
-    template.servable(title="DMS Datastore \u2014 Classic Explorer")
-
-
 # ── [6] Entry point ───────────────────────────────────────────────────────────
 #
 # Run:  python repoui.py [REPO_DIR] [--port PORT] [--address ADDRESS]
@@ -249,8 +189,8 @@ def make_oldui_app():
 # pn.serve(...) ensures module-level code runs only once.
 #
 # Routes:
-#   /repoui  → new DataUI  (make_newui_app)
-#   /oldui   → classic StationInventoryExplorer  (make_oldui_app)
+#   /        → new DataUI  (make_newui_app)
+#   /<plugin-route> -> optional plugin apps loaded via entry points
 
 import click
 
@@ -264,7 +204,13 @@ import click
     show_default=True,
     help="Network address to bind to.",
 )
-def _serve(repo_dir: str, port: int, address: str) -> None:
+@click.option(
+    "--config",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, readable=True),
+    help="Optional YAML config for plugin routes and static dirs.",
+)
+def _serve(repo_dir: str, port: int, address: str, config: Optional[str]) -> None:
     """Serve the DMS Datastore UI.
 
     REPO_DIR is the path to the continuous data repository
@@ -272,10 +218,23 @@ def _serve(repo_dir: str, port: int, address: str) -> None:
     """
     global _REPO_DIR
     _REPO_DIR = repo_dir
+    _dms_logger.info("Classic oldui route is disabled; serving only newui base route plus plugins.")
+
+    server_cfg = load_server_config(config)
+    plugin_cfg = server_cfg.get("plugins", {}) if isinstance(server_cfg, dict) else {}
+    static_cfg = server_cfg.get("static_dirs", []) if isinstance(server_cfg, dict) else []
+
+    base_apps = {"": make_newui_app}
+    plugin_regs = discover_entrypoint_plugins(plugin_cfg, _dms_logger)
+    apps = merge_plugin_apps(base_apps, plugin_regs, _dms_logger)
+    static_dirs = merge_static_dirs(static_cfg, plugin_regs, _dms_logger)
+    startup_summary(apps, static_dirs, _dms_logger)
+
     pn.serve(
-        {"": make_newui_app, "oldui": make_oldui_app},
+        apps,
         port=port,
         address=address,
+        static_dirs=static_dirs,
         allow_websocket_origin=["*"],
         keep_alive=30000,
         unused_session_lifetime_milliseconds=2_592_000_000,

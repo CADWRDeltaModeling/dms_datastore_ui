@@ -43,6 +43,7 @@ dependencies = [
     "beautifulsoup4",
     "vtools3",
     "numba",
+    "pyyaml",
     "dms-datastore",
     "dvue @ git+https://github.com/CADWRDeltaModeling/dvue",
 ]
