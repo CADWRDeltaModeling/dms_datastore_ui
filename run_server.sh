@@ -1,5 +1,7 @@
 pip install git+https://github.com/CADWRDeltaModeling/dvue.git#egg=dvue --no-deps
 pip install -e . --no-deps
+# CARTO_API_KEY must be set in the environment (get a key at https://carto.com/basemaps/apikey)
+# or basemap tiles will show CARTO's "API key required" watermark.
 dir="continuous"
 if [ -f "caching.log" ]; then
     echo "caching.log exists"

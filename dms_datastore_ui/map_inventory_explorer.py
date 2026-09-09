@@ -24,6 +24,8 @@ pn.extension("tabulator", notifications=True, design="native")
 
 import param
 
+from dvue.tile_sources import get_carto_tile_source
+
 #!pip install diskcache
 import diskcache
 
@@ -404,7 +406,7 @@ class StationInventoryExplorer(param.Parameterized):
             self.station_datastore.min_year,
             self.station_datastore.max_year,
         )
-        self.tmap = gv.tile_sources.CartoLight
+        self.tmap = get_carto_tile_source()
         tooltips = [
             ("Station ID", "@station_id"),
             ("SubLoc", "@subloc"),
