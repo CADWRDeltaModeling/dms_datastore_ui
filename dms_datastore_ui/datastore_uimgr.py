@@ -22,6 +22,7 @@ from dvue.catalog import (
     CatalogBuilder,
     DataCatalog,
 )
+from dms_datastore import read_ts_repo
 from dms_datastore.read_ts import read_ts
 from dms_datastore.filename import interpret_fname
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
@@ -43,26 +44,53 @@ _UTM10N_TO_WGS84 = Transformer.from_crs("EPSG:26910", "EPSG:4326", always_xy=Tru
 
 
 class DatastoreFilepathReader(DataReferenceReader):
-    """Reads time series data from an absolute ``filepath`` attribute.
+    """Read repository series or standalone datastore files.
 
     A single instance can be shared across many references (flyweight).
-    Pass ``read_fn`` to substitute a memoized or otherwise cached callable
-    (e.g. ``StationDatastore.caching_read_ts``) in place of the default
-    plain :func:`~dms_datastore.read_ts.read_ts`.
+    Repository references use ``read_ts_repo`` with their logical identity;
+    standalone references use ``read_ts`` with an explicit filepath. Pass
+    either callable to substitute a memoized implementation.
     """
 
-    def __init__(self, source: str = "", read_fn=None):
+    def __init__(self, source: str = "", read_fn=None, repo_read_fn=None):
         self._source = source or ""
         self._read_fn = read_fn if read_fn is not None else read_ts
+        self._repo_read_fn = repo_read_fn if repo_read_fn is not None else read_ts_repo
 
     def load(self, **attributes) -> pd.DataFrame:
+        repo_root = str(attributes.get("repo_root") or "")
+        repo_level = str(attributes.get("repo_level") or "")
+        station_id = str(attributes.get("station_id") or "")
+        variable = str(attributes.get("param") or attributes.get("variable") or "")
+        if repo_root and repo_level and station_id and variable:
+            time_range = attributes.get("time_range")
+            start, end = time_range if time_range is not None else (None, None)
+            subloc = attributes.get("subloc")
+            subloc = None if pd.isna(subloc) or not subloc else str(subloc)
+            modifier = attributes.get("modifier")
+            modifier = None if pd.isna(modifier) or not modifier else str(modifier)
+            result = self._repo_read_fn(
+                station_id,
+                variable,
+                subloc=subloc,
+                repo=repo_level,
+                start=start,
+                end=end,
+                modifier=modifier,
+                data_path=os.path.join(repo_root, repo_level),
+            )
+            if result is None:
+                raise FileNotFoundError(
+                    f"No repository data found for {station_id}/{variable} "
+                    f"in {repo_level!r}"
+                )
+            return result
+
         filepath = attributes.get("filepath")
         if not filepath:
             # Inventory-derived refs store a glob pattern instead of a resolved path.
             # Resolve lazily on first data request.
             file_pattern = attributes.get("file_pattern", "")
-            repo_root = str(attributes.get("repo_root") or "")
-            repo_level = str(attributes.get("repo_level") or "")
             if file_pattern:
                 search_root = os.path.join(repo_root, repo_level) if repo_level else repo_root
                 matches = sorted(glob.glob(os.path.join(search_root, file_pattern)))
@@ -242,14 +270,17 @@ class DatastoreFilepathReader(DataReferenceReader):
         return [ref]
 
     def __repr__(self) -> str:
-        return f"DatastoreFilepathReader(source={self._source!r}, read_fn={self._read_fn!r})"
+        return (
+            f"DatastoreFilepathReader(source={self._source!r}, "
+            f"read_fn={self._read_fn!r}, repo_read_fn={self._repo_read_fn!r})"
+        )
 
 
 class DatastoreDataReference(DataReference):
     """Datastore-specific :class:`~dvue.catalog.DataReference`.
 
-    References are standalone by carrying an absolute ``filepath`` and the
-    metadata required by filtering, map display, and mixed-catalog workflows.
+    References are standalone by carrying either logical repository identity
+    or an explicit filepath, plus metadata for filtering and map display.
     """
 
     ref_type = "datastore_csv"
@@ -257,10 +288,14 @@ class DatastoreDataReference(DataReference):
     def __init__(self, reader=None, name: str = "", cache: bool = False, **attributes):
         has_filepath = bool(attributes.get("filepath"))
         has_pattern = bool(attributes.get("file_pattern"))
-        if not has_filepath and not has_pattern:
+        has_repo_identity = all(
+            attributes.get(key)
+            for key in ("repo_root", "repo_level", "station_id", "param")
+        )
+        if not has_filepath and not has_pattern and not has_repo_identity:
             raise ValueError(
                 "DatastoreDataReference requires either a non-empty 'filepath' "
-                "or a 'file_pattern' (for inventory-derived references)."
+                "or repository identity attributes."
             )
         if reader is None:
             reader = DatastoreFilepathReader()
@@ -268,18 +303,24 @@ class DatastoreDataReference(DataReference):
 
     @classmethod
     def from_inventory_row(cls, row, repo_dir, repo_level, reader=None):
-        filename = row["filename"]
+        file_pattern = row.get("file_pattern") or row.get("filename")
+        filename = row.get("filename") or file_pattern
         subloc = row["subloc"] if pd.notna(row["subloc"]) and row["subloc"] else ""
-        filepath = os.path.join(repo_dir, repo_level, filename)
+        modifier = row.get("modifier", "")
+        modifier = "" if pd.isna(modifier) else str(modifier)
         return cls(
             reader=reader,
-            name=filename,
+            name="",
             cache=False,
-            filepath=filepath,
+            source=repo_dir,
+            repo_root=repo_dir,
             repo_level=repo_level,
             filename=filename,
+            file_pattern=file_pattern,
+            series_id=row.get("series_id"),
             station_id=row["station_id"],
             subloc=subloc,
+            modifier=modifier,
             station_name=row["name"],
             param=row["param"],
             unit=row["unit"],
@@ -323,7 +364,7 @@ class DatastoreCatalogBuilder(CatalogBuilder):
 
     Each row in the merged station/dataset inventory becomes one
     ``DatastoreDataReference``. A shared :class:`DatastoreFilepathReader`
-    lazily loads each row's file using its absolute ``filepath`` attribute.
+    lazily loads each logical series through ``read_ts_repo``.
 
     In-memory caching on each reference is disabled (``cache=False``)
     because the :class:`StationDatastore` already maintains an on-disk
@@ -336,11 +377,11 @@ class DatastoreCatalogBuilder(CatalogBuilder):
     def build(self, source: StationDatastore):
         # Wire the diskcache-memoized wrapper so catalog reads hit the same
         # on-disk cache that StationDatastore.get_data() and repocache.py use.
-        reader = DatastoreFilepathReader(read_fn=source.caching_read_ts)
-        # Merge station inventory with dataset inventory on common columns.
-        # df_dataset_inventory has additional columns like filename.
-        merge_keys = ["station_id", "subloc", "name", "unit", "param", "min_year", "max_year", "agency", "agency_id_dbase", "x", "y"]
-        inventory = source.df_dataset_inventory  # dataset inventory already includes all needed columns
+        reader = DatastoreFilepathReader(
+            read_fn=source.caching_read_ts,
+            repo_read_fn=getattr(source, "caching_read_ts_repo", read_ts_repo),
+        )
+        inventory = source.df_dataset_inventory
         repo_level = source.repo_level[0]
         logger.debug("Building catalog: %d rows from %s/%s", len(inventory), source.dir, repo_level)
         refs = []
@@ -473,7 +514,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # Build catalog before super().__init__() because the parent calls
         # get_data_catalog() during initialisation.
         self._catalog = (
-            DataCatalog(primary_key=["station_id", "subloc", "param"], crs="EPSG:26910")
+            DataCatalog(
+                primary_key=["station_id", "subloc", "param", "modifier"],
+                crs="EPSG:26910",
+            )
             .add_builder(DatastoreCatalogBuilder())
             .add_source(self.datastore)
         )
@@ -957,11 +1001,12 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
                 "station_id", "subloc", "station_name",
                 "min_year", "max_year", "agency", "agency_id_dbase",
                 "param", "unit",
-                "filename",   # hidden; needed by get_data_reference()
+                "modifier",   # hidden; part of repository data identity
+                "file_pattern",  # hidden; concrete-file actions resolve this lazily
                 "name",       # hidden; catalog key used by get_data_reference()
             ],
-            "optional_columns": [],
-            "hidden_by_default": ["filename", "name"],
+            "optional_columns": ["filename", "series_id"],
+            "hidden_by_default": ["modifier", "file_pattern", "filename", "series_id", "name"],
             "drop_if_all_null": False,
             "column_widths": {
                 "station_id": "10%",
@@ -999,8 +1044,16 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             subloc = row.get("subloc", "") if hasattr(row, "get") else row["subloc"]
             subloc = "" if pd.isna(subloc) else str(subloc)
             param = row.get("param", "") if hasattr(row, "get") else row["param"]
-            logger.debug("get_data_reference: pk lookup station_id=%s subloc=%s param=%s", station_id, subloc, param)
-            ref = self._catalog.get(station_id=station_id, subloc=subloc, param=param)
+            primary_key = {
+                "station_id": station_id,
+                "subloc": subloc,
+                "param": param,
+            }
+            if "modifier" in self._catalog.primary_key:
+                modifier = row.get("modifier", "") if hasattr(row, "get") else ""
+                primary_key["modifier"] = "" if pd.isna(modifier) else str(modifier)
+            logger.debug("get_data_reference: pk lookup %s", primary_key)
+            ref = self._catalog.get(**primary_key)
         if self.unit_conversion:
             param = row.get("param", "") if hasattr(row, "get") else row["param"]
             unit = row.get("unit", "") if hasattr(row, "get") else row["unit"]
@@ -1009,9 +1062,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
     def get_data(self, df, time_range=None):
         """Yield series with descriptive column names instead of the generic 'value'."""
-        for (_, r), data in zip(df.iterrows(), super().get_data(df, time_range=time_range)):
+        base_data = TimeSeriesDataUIManager.get_data(self, df, time_range=time_range)
+        for (_, r), data in zip(df.iterrows(), base_data):
             if data is not None and not data.empty and "value" in data.columns:
-                label = self._series_label(r, data)
+                label = DatastoreUIMgr._series_label(r, data)
                 data = data.rename(columns={"value": label})
             yield data
 
@@ -1031,46 +1085,6 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
 
     def is_irregular(self, r):
         return False  # only regular time series data in example
-
-    def get_data_for_time_range(self, r, time_range):
-        # Look up the DataReference for this row using the catalog's universal
-        # key (ref.name). For datastore refs name==filename; for any other ref
-        # type in a mixed catalog name is always present after reset_index().
-        ref = self.data_catalog.get(r["name"])
-        current_repo_level = self.repo_level[0] if self.repo_level else "screened"
-        if ref.get_attribute("repo_level") != current_repo_level:
-            logger.debug(
-                "repo_level mismatch for %s: ref has '%s', updating to '%s'",
-                r["filename"], ref.get_attribute("repo_level"), current_repo_level,
-            )
-            ref.set_attribute("repo_level", current_repo_level)
-
-        unit = r["unit"]
-        result_data = pd.DataFrame()
-        try:
-            logger.debug(
-                "get_data_for_time_range: %s/%s file=%s range=%s to %s",
-                r["station_id"], r["param"], r["filename"], time_range[0], time_range[1],
-            )
-            t0 = time.perf_counter()
-            ts_data = ref.getData()
-            logger.debug(
-                "getData %.3fs (%d rows): %s",
-                time.perf_counter() - t0, len(ts_data), r["filename"],
-            )
-            if self.unit_conversion:
-                ts_data, unit = to_uniform_units(ts_data, r["param"], unit)
-            result_data = ts_data[slice(time_range[0], time_range[1])]
-        except Exception as e:
-            print(
-                f"Error retrieving data for {r['station_id']}/{r['param']} using {r['filename']}: {e}"
-            )
-
-        return (
-            result_data,
-            unit,
-            "inst-val",
-        )
 
     def get_station_ids(self, df):
         return list((df.apply(self.build_station_name, axis=1).astype(str).unique()))

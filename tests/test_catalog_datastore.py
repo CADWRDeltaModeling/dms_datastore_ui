@@ -41,6 +41,38 @@ def inventory_row_dict():
 
 
 class TestDatastoreFilepathReader:
+    def test_load_uses_repository_identity_and_time_range(self, timeseries_df):
+        called = {}
+
+        def fake_read_ts_repo(station_id, variable, **kwargs):
+            called.update(station_id=station_id, variable=variable, **kwargs)
+            return timeseries_df
+
+        reader = DatastoreFilepathReader(repo_read_fn=fake_read_ts_repo)
+        time_range = (pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02"))
+
+        result = reader.load(
+            repo_root=r"C:\repo",
+            repo_level="screened",
+            station_id="anh",
+            subloc="north",
+            param="flow",
+            modifier="daily",
+            time_range=time_range,
+        )
+
+        assert called == {
+            "station_id": "anh",
+            "variable": "flow",
+            "subloc": "north",
+            "repo": "screened",
+            "start": time_range[0],
+            "end": time_range[1],
+            "modifier": "daily",
+            "data_path": os.path.join(r"C:\repo", "screened"),
+        }
+        pd.testing.assert_frame_equal(result, timeseries_df)
+
     def test_load_reads_filepath(self, monkeypatch, timeseries_df):
         called = {}
 
@@ -77,23 +109,26 @@ class TestDatastoreDataReference:
         )
 
         assert isinstance(ref, DatastoreDataReference)
-        assert os.path.normpath(ref.filepath) == os.path.normpath(
-            r"C:\repo\screened\usgs_anh_11303500_flow_2024.csv"
-        )
+        assert ref.filepath is None
+        assert ref.get_attribute("repo_root") == r"C:\repo"
+        assert ref.get_attribute("repo_level") == "screened"
+        assert ref.get_attribute("file_pattern") == inventory_row_dict["filename"]
         assert ref.station_id == "anh"
         assert ref.subloc == ""
         assert ref.parameter == "flow"
         assert ref.unit == "cfs"
         assert isinstance(ref.geometry, Point)
 
-    def test_get_data_uses_default_filepath_reader(
+    def test_get_data_uses_default_repository_reader(
         self, monkeypatch, timeseries_df, inventory_row_dict
     ):
-        def fake_read_ts(path):
-            assert path.endswith(inventory_row_dict["filename"])
+        called = {}
+
+        def fake_read_ts_repo(station_id, variable, **kwargs):
+            called.update(station_id=station_id, variable=variable, **kwargs)
             return timeseries_df
 
-        monkeypatch.setattr(datastore_uimgr, "read_ts", fake_read_ts)
+        monkeypatch.setattr(datastore_uimgr, "read_ts_repo", fake_read_ts_repo)
 
         ref = DatastoreDataReference.from_inventory_row(
             row=pd.Series(inventory_row_dict),
@@ -102,6 +137,10 @@ class TestDatastoreDataReference:
         )
 
         result = ref.getData()
+        assert called["station_id"] == "anh"
+        assert called["variable"] == "flow"
+        assert called["repo"] == "screened"
+        assert called["data_path"] == os.path.join(r"C:\repo", "screened")
         pd.testing.assert_frame_equal(result, timeseries_df)
 
 
@@ -149,10 +188,10 @@ class TestDatastoreCatalogBuilder:
         ref = refs[0]
         assert isinstance(ref, DatastoreDataReference)
         assert ref.get_attribute("filename") == inventory_row_dict["filename"]
+        assert ref.get_attribute("file_pattern") == inventory_row_dict["filename"]
+        assert ref.get_attribute("repo_root") == r"C:\repo"
         assert ref.get_attribute("repo_level") == "screened"
-        assert os.path.normpath(ref.filepath) == os.path.normpath(
-            r"C:\repo\screened\usgs_anh_11303500_flow_2024.csv"
-        )
+        assert ref.filepath is None
 
     def test_build_shares_reader_instance(self, inventory_row_dict):
         builder = DatastoreCatalogBuilder()
@@ -368,6 +407,7 @@ class TestGetDataColumnNaming:
         mgr = SimpleNamespace(
             _catalog=catalog,
             unit_conversion=False,
+            convert_units=False,
             time_range=None,
             data_catalog=catalog,
             _dataui=None,

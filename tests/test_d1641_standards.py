@@ -112,15 +112,15 @@ def test_rsl_ec_to_cl_array():
 
 def test_build_d1641_references_count(wyt_file):
     refs = build_d1641_references(wyt_file)
-    # AG WI:         emm + jer = 2
+    # AG WI:         emm + jer + sti + sal = 4
     # FWS SJR:       jer       = 1
     # AG S DELTA:    ver + bdt + old = 3
     # AG EXPORT:     trp + hbp = 2
     # FWS SUISUN:    cse + nsl + bdl = 3
     # MI 250:        rsl + hbp + trp + bks + ccs = 5
     # MI 150:        rsl = 1
-    # Total = 17
-    assert len(refs) == 17
+    # Total = 19
+    assert len(refs) == 19
 
 
 def test_build_d1641_references_names(wyt_file):
@@ -151,7 +151,7 @@ def test_build_d1641_references_names(wyt_file):
 def test_build_d1641_references_station_ids(wyt_file):
     refs = build_d1641_references(wyt_file)
     station_ids = {r.get_attribute("station_id") for r in refs}
-    assert {"emm", "jer", "rsl", "ver", "bdt", "old",
+    assert {"emm", "jer", "sti", "sal", "rsl", "ver", "bdt", "old",
             "trp", "hbp", "cse", "nsl", "bdl", "bks", "ccs"} == station_ids
 
 
@@ -286,7 +286,7 @@ def test_custom_standards_single(wyt_file):
     """Passing a single standard spec returns only that standard's references."""
     specs = [s for s in DEFAULT_STANDARDS if s.name == "D1641_AG_WI"]
     refs = build_d1641_references(wyt_file, standards=specs)
-    assert len(refs) == 2  # emm + jer
+    assert len(refs) == 4  # emm + jer + sti + sal
     assert all(r.get_attribute("param") == "D1641_AG_WI" for r in refs)
 
 

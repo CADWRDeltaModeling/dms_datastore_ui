@@ -193,6 +193,11 @@ class StationDatastore(param.Parameterized):
                 print(f"Error initializing temp directory cache: {e2}, falling back to memory cache")
                 self.cache = _MemoryCache()
         self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache is not None else read_ts
+        self.caching_read_ts_repo = (
+            self.cache.memoize()(dms_datastore.read_ts_repo)
+            if self.cache is not None
+            else dms_datastore.read_ts_repo
+        )
         # check that repo_levels are valid and set default to first valid
         valid_repo_levels = []
         for repo_level in self.param.repo_level.objects:
@@ -208,24 +213,32 @@ class StationDatastore(param.Parameterized):
         self.param.repo_level.default = valid_repo_levels[0]
         # self.repo_level = valid_repo_levels[0]  # select the first valid repo_level
         # read inventory file for each repo level
+        selected_repo_level = self.repo_level[0]
         self.inventory_file, mtime = find_lastest_fname(
-            f"inventory_datasets_{self.repo_level}*.csv", self.dir
+            f"inventory_datasets_{selected_repo_level}*.csv", self.dir
         )
         if not self.inventory_file:
             raise FileNotFoundError(
-                f"Could not find inventory_datasets_{self.repo_level}*.csv file in {self.dir}"
+                f"Could not find inventory_datasets_{selected_repo_level}*.csv file in {self.dir}"
             )
         print("Using inventory file: ", self.inventory_file)
         self.df_dataset_inventory = pd.read_csv(
             os.path.join(self.dir, self.inventory_file)
         )
-        # normalize column names changed in dms_datastore inventory.py (backward-compatible)
+        # Normalize registry metadata while retaining the current logical
+        # inventory fields (series_id, file_pattern, and modifier).
         self.df_dataset_inventory = self.df_dataset_inventory.rename(
             columns={
                 "agency_id_registry": "agency_id_dbase",
-                "file_pattern": "filename",
             }
         )
+        if "file_pattern" not in self.df_dataset_inventory.columns:
+            self.df_dataset_inventory["file_pattern"] = self.df_dataset_inventory["filename"]
+        if "filename" not in self.df_dataset_inventory.columns:
+            self.df_dataset_inventory["filename"] = self.df_dataset_inventory["file_pattern"]
+        if "modifier" not in self.df_dataset_inventory.columns:
+            self.df_dataset_inventory["modifier"] = ""
+        self.df_dataset_inventory["modifier"] = self.df_dataset_inventory["modifier"].fillna("")
         # replace nan with empty string for column subloc
         self.df_dataset_inventory["subloc"] = self.df_dataset_inventory[
             "subloc"
@@ -238,6 +251,7 @@ class StationDatastore(param.Parameterized):
             "name",
             "unit",
             "param",
+            "modifier",
             "min_year",
             "max_year",
             "agency",
@@ -246,7 +260,7 @@ class StationDatastore(param.Parameterized):
             "y",
         ]
         self.df_station_inventory = (
-            self.df_dataset_inventory.groupby(group_cols)
+            self.df_dataset_inventory.groupby(group_cols, dropna=False)
             .count()
             .reset_index()[group_cols]
         )
@@ -258,14 +272,39 @@ class StationDatastore(param.Parameterized):
         return os.path.basename(os.path.normpath(dir))
 
     def get_data(self, repo_level, filename):
-        if self.caching:
-            return self.caching_read_ts(self.get_data_filepath(repo_level, filename))
-        else:
-            return read_ts(self.get_data_filepath(repo_level, filename))
+        matches = self.df_dataset_inventory[
+            (self.df_dataset_inventory["filename"] == filename)
+            | (self.df_dataset_inventory["file_pattern"] == filename)
+        ]
+        if matches.empty:
+            raise KeyError(f"No inventory row found for {filename!r}")
+        row = matches.iloc[0]
+        subloc = row["subloc"] or None
+        modifier = row["modifier"] or None
+        read_fn = self.caching_read_ts_repo if self.caching else dms_datastore.read_ts_repo
+        return read_fn(
+            row["station_id"],
+            row["param"],
+            subloc=subloc,
+            repo=repo_level,
+            modifier=modifier,
+            data_path=os.path.join(self.dir, repo_level),
+        )
 
     def get_data_filepath(self, repo_level, filename):
         filepath = os.path.join(self.dir, repo_level, filename)
         return filepath
+
+    def get_data_filepaths(self, repo_level, row):
+        pattern = row.get("file_pattern") or row.get("filename")
+        if not pattern:
+            raise KeyError("Inventory row has neither 'file_pattern' nor 'filename'")
+        matches = sorted(Path(self.dir, repo_level).glob(str(pattern)))
+        if not matches:
+            raise FileNotFoundError(
+                f"No files match {pattern!r} in {Path(self.dir, repo_level)}"
+            )
+        return [str(path) for path in matches]
 
     def clear_cache(self):
         if self.caching:
@@ -276,15 +315,15 @@ class StationDatastore(param.Parameterized):
         # get unique filenames
         if not self.caching:
             raise Exception("Caching is not enabled")
-        filenames = self.df_dataset_inventory["filename"].unique()
-        print("Caching: ", len(filenames), " files")
-        for i, filename in enumerate(filenames):
-            print(f"Caching {i} ::{filename}")
+        datasets = self.df_dataset_inventory["file_pattern"].unique()
+        print("Caching: ", len(datasets), " datasets")
+        for i, file_pattern in enumerate(datasets):
+            print(f"Caching {i} ::{file_pattern}")
             try:
-                self.get_data(repo_level, filename)
+                self.get_data(repo_level, file_pattern)
             except Exception as e:
                 print(e)
-                print("Skipping", filename, "due to error")
+                print("Skipping", file_pattern, "due to error")
 
     def get_uniform_units_data(self, df, param, unit):
         if self.convert_units:

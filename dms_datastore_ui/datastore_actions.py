@@ -46,7 +46,7 @@ def _open_display_tab(dataui, title, content):
 
 
 def _selected_rows(dataui):
-    """Return the selected catalog rows merged with the dataset inventory, or None."""
+    """Return the selected catalog rows, or None."""
     if not dataui.display_table.selection:
         if pn.state.notifications is not None:
             pn.state.notifications.warning(
@@ -54,10 +54,6 @@ def _selected_rows(dataui):
             )
         return None
     df = dataui.display_table.value.iloc[dataui.display_table.selection]
-    # merge with dataset inventory to get filename column if not already present
-    uimgr = dataui._dataui_manager
-    if "filename" not in df.columns and hasattr(uimgr, "datastore"):
-        df = df.merge(uimgr.datastore.df_dataset_inventory)
     return df
 
 
@@ -78,11 +74,11 @@ class DataScreenerAction:
             view = pn.Tabs()
             for _, r in df.iterrows():
                 for repo_level in repo_levels:
-                    filepath = uimgr.datastore.get_data_filepath(repo_level, r["filename"])
-                    screener = data_screener.DataScreener(filepath)
-                    screener.time_range = time_range
-                    tab_label = f"{r['station_id']}_{r['subloc']}_{r['param']}"
-                    view.append((tab_label, screener.view()))
+                    for filepath in uimgr.datastore.get_data_filepaths(repo_level, r):
+                        screener = data_screener.DataScreener(filepath)
+                        screener.time_range = time_range
+                        tab_label = f"{r['station_id']}_{r['subloc']}_{r['param']}"
+                        view.append((tab_label, screener.view()))
 
             _open_display_tab(dataui, "Data Screener", view)
         except Exception as e:
@@ -111,11 +107,11 @@ class FlagEditorAction:
             view = pn.Tabs()
             for _, r in df.iterrows():
                 for repo_level in repo_levels:
-                    filepath = uimgr.datastore.get_data_filepath(repo_level, r["filename"])
-                    editor = flag_editor.FlagEditor(filepath)
-                    editor.time_range = time_range
-                    tab_label = f"{r['station_id']}_{r['subloc']}_{r['param']}"
-                    view.append((tab_label, editor.view()))
+                    for filepath in uimgr.datastore.get_data_filepaths(repo_level, r):
+                        editor = flag_editor.FlagEditor(filepath)
+                        editor.time_range = time_range
+                        tab_label = f"{r['station_id']}_{r['subloc']}_{r['param']}"
+                        view.append((tab_label, editor.view()))
 
             _open_display_tab(dataui, "Flag Editor", view)
         except Exception as e:
@@ -142,25 +138,18 @@ class GapVisualizerAction:
                 return
             uimgr = dataui._dataui_manager
             time_range = uimgr.time_range
-            repo_levels = uimgr.datastore.repo_level
-
             views = []
             for _, r in df.iterrows():
-                for repo_level in repo_levels:
-                    ref = uimgr.data_catalog.get(r["filename"])
-                    # Sync repo_level on the reference
-                    if ref.get_attribute("repo_level") != repo_level:
-                        ref.set_attribute("repo_level", repo_level)
-                    try:
-                        dfdata = ref.getData()
-                        dfdata = dfdata[slice(time_range[0], time_range[1])]
-                    except Exception as e:
-                        logger.error(f"Could not load data for {r['filename']}: {e}")
-                        continue
-                    gv = gap_visualizer.GapVisualizer(dfdata, r)
-                    crv, spike = gv.visualize_gap()
-                    views.append(crv)
-                    views.append(spike)
+                ref = uimgr.data_catalog.get(r["name"])
+                try:
+                    dfdata = ref.getData(time_range=time_range)
+                except Exception as e:
+                    logger.error("Could not load data for %s: %s", r["name"], e)
+                    continue
+                gv = gap_visualizer.GapVisualizer(dfdata, r)
+                crv, spike = gv.visualize_gap()
+                views.append(crv)
+                views.append(spike)
 
             if not views:
                 _open_display_tab(

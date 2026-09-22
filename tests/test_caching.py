@@ -111,7 +111,10 @@ def test_data_reference_second_call_is_faster(datastore, sample_filepath):
     """getData() on a DatastoreDataReference should hit the cache on the 2nd call."""
     from dms_datastore_ui.datastore_uimgr import DatastoreFilepathReader, DatastoreDataReference
 
-    reader = DatastoreFilepathReader(read_fn=datastore.caching_read_ts)
+    reader = DatastoreFilepathReader(
+        read_fn=datastore.caching_read_ts,
+        repo_read_fn=datastore.caching_read_ts_repo,
+    )
     datastore.cache.clear()
 
     row = datastore.df_dataset_inventory.iloc[0]
@@ -171,7 +174,10 @@ if __name__ == "__main__":
 
     # Layer 2 — through DatastoreFilepathReader
     print("\n--- Layer 2: DatastoreFilepathReader.load() ---")
-    reader = DatastoreFilepathReader(read_fn=ds.caching_read_ts)
+    reader = DatastoreFilepathReader(
+        read_fn=ds.caching_read_ts,
+        repo_read_fn=ds.caching_read_ts_repo,
+    )
     ds.cache.clear()
     t0 = time.perf_counter(); df = reader.load(filepath=filepath); e1 = time.perf_counter() - t0
     print(f"  Cold read : {e1:.3f}s  ({len(df)} rows)")

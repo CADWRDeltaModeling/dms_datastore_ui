@@ -1,7 +1,12 @@
 """Quick cache diagnostic - uses a small file to finish fast.
-Run: conda activate dms_datastore_ui && python tests/test_caching_quick.py continuous
+Run: conda activate dms_datastore_ui; python tests/test_caching_quick.py continuous
 """
 import sys, time, os
+
+if __name__ != "__main__":
+    import pytest
+
+    pytest.skip("Manual cache diagnostic; run this module directly", allow_module_level=True)
 
 repo_dir = sys.argv[1] if len(sys.argv) > 1 else "continuous"
 

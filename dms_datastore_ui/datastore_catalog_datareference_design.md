@@ -28,19 +28,21 @@ Gap:
 
 ### DatastoreFilepathReader
 
-A dedicated DataReferenceReader implementation that loads with an absolute filepath.
+A dedicated DataReferenceReader implementation that loads logical repository series or standalone files.
 
 Responsibilities:
 
 - Implement load(**attributes).
-- Require filepath in attributes.
-- Return read_ts(filepath).
+- For repository references, require station, variable, repo, and repository-root attributes.
+- Return `read_ts_repo(...)`, forwarding sublocation, modifier, and time range.
+- For standalone CSV references, return `read_ts(filepath)`.
 
 Notes:
 
 - Uses the dvue reader contract directly.
 - Supports flyweight usage, where one reader instance is shared across many references.
 - Avoids StationDatastore coupling at load time.
+- Preserves repository provider resolution, shard merging, flags, and regularity guarantees.
 
 ### DatastoreDataReference
 
@@ -48,11 +50,13 @@ A datastore-specific DataReference subclass with a focused convenience API.
 
 Required metadata:
 
-- filepath
+- repo_root
 - repo_level
-- filename
+- series_id
+- file_pattern
 - station_id
 - subloc
+- modifier
 - station_name
 - param
 - unit
@@ -76,7 +80,7 @@ Convenience properties for now:
 Factory:
 
 - from_inventory_row(row, repo_dir, repo_level, reader=None)
-- Computes absolute filepath from repo_dir, repo_level, and filename.
+- Stores logical repository identity from the inventory row.
 - Normalizes missing subloc values to empty string.
 - Uses DatastoreFilepathReader by default when reader is not provided.
 
@@ -96,7 +100,7 @@ Builder behavior:
 
 Result:
 
-- Built references are portable and can load data independently via filepath.
+- Built references are portable and can load data independently through `read_ts_repo`.
 
 ## Mixed Catalog Interoperability
 
@@ -116,13 +120,13 @@ Standalone tests are implemented in tests/test_catalog_datastore.py.
 Coverage groups:
 
 1. DatastoreFilepathReader
-- load uses read_ts with filepath
-- missing filepath raises error
+- repository loads use `read_ts_repo` with identity and time range
+- standalone loads use `read_ts` with filepath
 
 2. DatastoreDataReference
-- filepath is required
-- from_inventory_row builds normalized metadata and filepath
-- getData works with default reader
+- filepath or repository identity is required
+- from_inventory_row builds normalized logical metadata
+- getData works with the repository reader
 
 3. DatastoreCatalogBuilder
 - can_handle positive and negative cases

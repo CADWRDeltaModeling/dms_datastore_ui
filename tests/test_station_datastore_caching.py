@@ -64,11 +64,13 @@ def fake_repo(tmp_path):
     inventory = pd.DataFrame(
         [
             {
-                "filename": file_a,
+                "series_id": "anh|flow",
+                "file_pattern": file_a,
                 "station_id": "anh",
                 "subloc": "",
                 "name": "Andrus Island",
                 "param": "flow",
+                "modifier": "",
                 "unit": "cfs",
                 "min_year": 2024,
                 "max_year": 2024,
@@ -78,11 +80,13 @@ def fake_repo(tmp_path):
                 "y": 4200000.0,
             },
             {
-                "filename": file_b,
+                "series_id": "sac|ec",
+                "file_pattern": file_b,
                 "station_id": "sac",
                 "subloc": "",
                 "name": "Sacramento River",
                 "param": "ec",
+                "modifier": "",
                 "unit": "microS/cm",
                 "min_year": 2024,
                 "max_year": 2024,
@@ -123,6 +127,15 @@ def _filepath(ds, filename):
 # ---------------------------------------------------------------------------
 
 class TestStationDatastoreCaching:
+    def test_current_inventory_fields_are_preserved(self, datastore):
+        inventory = datastore.df_dataset_inventory
+
+        assert {"series_id", "file_pattern", "modifier"}.issubset(inventory.columns)
+        assert inventory.iloc[0]["filename"] == inventory.iloc[0]["file_pattern"]
+        assert datastore.get_data_filepaths(
+            datastore.repo_level[0], inventory.iloc[0]
+        ) == [_filepath(datastore, inventory.iloc[0]["filename"])]
+
     def test_cold_read_returns_dataframe(self, datastore):
         """get_data() returns a non-empty DataFrame on a cold (uncached) read."""
         inv = datastore.df_dataset_inventory

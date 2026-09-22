@@ -10,18 +10,18 @@ Use this file when working in the `dms_datastore_ui/` workspace root.
 
 ## Terminal And Environment (Required)
 
-- Always run commands from a Command Prompt shell (`cmd`), not PowerShell.
-- If currently in PowerShell, enter `cmd` first.
+- Native PowerShell and Command Prompt are both supported. A `cmd` wrapper is not required.
 - Activate the project environment before running any install/test/run command:
-  - `conda activate dms_datastore_ui`
+   - `conda activate dms_datastore_ui`
 - Verify the active environment when needed:
-  - `conda info --envs` and confirm `dms_datastore_ui` is marked with `*`.
+   - `conda info --envs` and confirm `dms_datastore_ui` is marked with `*`.
+- If a PowerShell session has not initialized Conda, initialize or restart the shell before running commands.
 - Prefer `python -m pytest ...` over `pytest ...` to avoid PATH-related issues in this environment.
+- For faster focused tests in the heavy visualization environment, set `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` when no third-party pytest plugin is required.
 
 ## Fast Start For Agents
 
 1. Install editable package:
-   - `cmd`
    - `conda activate dms_datastore_ui`
    - `pip install --no-deps -e .`
 2. Run tests:
@@ -43,8 +43,8 @@ Use this file when working in the `dms_datastore_ui/` workspace root.
 | Class | Module | Role |
 |---|---|---|
 | `DatastoreUIMgr` | `datastore_uimgr.py` | Main dashboard manager; extends `dvue.TimeSeriesDataUIManager` |
-| `DatastoreDataReference` | `datastore_uimgr.py` | dvue `DataReference` with datastore metadata (filepath, station_id, subloc, param, unit, geometry) |
-| `DatastoreFilepathReader` | `datastore_uimgr.py` | dvue reader; flyweight shared across all references; calls `read_ts(filepath)` |
+| `DatastoreDataReference` | `datastore_uimgr.py` | dvue `DataReference` with repository identity and datastore metadata |
+| `DatastoreFilepathReader` | `datastore_uimgr.py` | dvue reader; uses `read_ts_repo` for repository refs and `read_ts` for standalone files |
 | `DatastoreCatalogBuilder` | `datastore_uimgr.py` | dvue builder; matches `StationDatastore` sources; builds reference list from inventory |
 | `DatastorePlotAction` | `datastore_uimgr.py` | Customizes curve labels (`station_id@subloc`) and titles |
 | `StationDatastore` | `map_inventory_explorer.py` | Runtime state: inventory, diskcache, unit conversion, filtering |
@@ -90,12 +90,12 @@ Also filter NaN before calling `get_unique_short_names()` — see `../dvue/AGENT
 
 ### Other Conventions
 - `repo_level` = datastore subdirectory level (e.g. `screened`, `formatted`).
-- `DatastoreCatalogBuilder` creates refs with `cache=False`; `StationDatastore` handles disk caching via `diskcache`.
+- `DatastoreCatalogBuilder` creates refs with `cache=False`; `StationDatastore` memoizes `read_ts_repo` via `diskcache`.
 - Subloc normalization: `nan` → empty string (never `None`). Applied in `DatastoreDataReference.from_inventory_row()`.
-- Caching hierarchy: `diskcache.Cache.memoize()` on `read_ts` → `DatastoreFilepathReader` → `DatastoreDataReference`. Do not add caching at multiple layers.
+- Caching hierarchy: `diskcache.Cache.memoize()` on `read_ts_repo` → `DatastoreFilepathReader` → `DatastoreDataReference`. Do not add caching at multiple layers.
 - `_sync_repo_level()` watcher (depends on `repo_level` param) keeps `StationDatastore` in sync when the UI param changes.
-- Unit conversion is applied in `get_data_for_time_range()` via `to_uniform_units()`. Never apply it again downstream.
-- Keep catalog metadata columns stable: `station_id`, `subloc`, `param`, `unit`, `min_year`, `max_year`, `geometry`, `repo_level`, `filename`. Filters and actions depend on them.
+- Unit conversion is applied by `_UnitConvertingRef` around `DataReference.getData()`. Never apply it again downstream.
+- Keep catalog metadata columns stable: `station_id`, `subloc`, `param`, `modifier`, `unit`, `min_year`, `max_year`, `geometry`, `repo_level`, `series_id`, and `file_pattern`.
 - Preserve CRS: `EPSG:26910` (UTM Zone 10N) used for map catalog creation. Change only if intentionally re-projecting.
 - Inventory file glob: `inventory_datasets_{repo_level}*.csv`. Multiple versions → `find_lastest_fname()` picks newest.
 
