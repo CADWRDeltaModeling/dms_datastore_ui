@@ -54,6 +54,7 @@ class _MemoryCache:
     def clear(self):
         self._store.clear()
 import dms_datastore
+from dms_datastore import dstore_config
 from dms_datastore.read_ts import read_ts, read_flagged
 from dms_datastore_ui import data_screener, flag_editor
 
@@ -172,11 +173,21 @@ class StationDatastore(param.Parameterized):
     convert_units = param.Boolean(default=True, doc="Convert units to uniform units")
     caching = param.Boolean(default=True, doc="Use caching")
 
+    def _configure_repository_roots(self):
+        """Point configured repository levels at this datastore directory."""
+        repos = dstore_config.config.get("repos", {})
+        for repo_level in self.param.repo_level.objects:
+            if repo_level not in repos:
+                raise ValueError(f"Unknown configured repo name: {repo_level}")
+            repos[repo_level]["root"] = os.path.join(self.dir, repo_level)
+        dstore_config._repo_cache = None
+
     def __init__(self, dir, **kwargs):
         super().__init__(**kwargs)
         self.dir = os.path.abspath(dir)
         if not os.path.exists(self.dir):
             raise Exception(f"Directory {self.dir} does not exist")
+        self._configure_repository_roots()
         try:
             self.cache = diskcache.Cache(
                 "cache_" + self.last_part_path(self.dir), size_limit=1e11

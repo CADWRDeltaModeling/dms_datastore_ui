@@ -14,6 +14,7 @@ import textwrap
 import pandas as pd
 import pytest
 
+from dms_datastore import dstore_config
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 
 # ---------------------------------------------------------------------------
@@ -127,6 +128,17 @@ def _filepath(ds, filename):
 # ---------------------------------------------------------------------------
 
 class TestStationDatastoreCaching:
+    def test_local_directory_configures_repository_root(self, datastore, fake_repo):
+        dstore_config._repo_cache = {
+            "screened": {"root": "//unavailable-server/repo/continuous/screened"}
+        }
+
+        datastore._configure_repository_roots()
+
+        assert dstore_config.repo_config("screened")["root"] == str(
+            fake_repo / "screened"
+        )
+
     def test_current_inventory_fields_are_preserved(self, datastore):
         inventory = datastore.df_dataset_inventory
 
