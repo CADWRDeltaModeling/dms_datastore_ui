@@ -1,4 +1,5 @@
 pip install git+https://github.com/CADWRDeltaModeling/dvue.git#egg=dvue --no-deps
+pip install git+https://github.com/CADWRDeltaModeling/dms_datastore.git#egg=dms_datastore --no-deps
 pip install -e . --no-deps
 # CARTO_API_KEY must be set in the environment (get a key at https://carto.com/basemaps/apikey)
 # or basemap tiles will show CARTO's "API key required" watermark.
