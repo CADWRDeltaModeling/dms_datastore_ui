@@ -238,6 +238,10 @@ def _serve(repo_dir: str, port: int, address: str, config: Optional[str]) -> Non
         allow_websocket_origin=["*"],
         keep_alive=30000,
         unused_session_lifetime_milliseconds=2_592_000_000,
+        # Bokeh's default (300s) expires the reconnect token after a few
+        # minutes idle; the browser's automatic reconnect then fails
+        # permanently with "Token is expired" until the page is reloaded.
+        session_token_expiration=2_592_000,
         show=False,
     )
 
