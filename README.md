@@ -2,7 +2,7 @@
 
 Web UI for dms_datastore
 
-Hosted at Azure: https://dwrbdodatastore.azurewebsites.net/repoui
+Hosted at Azure: https://dwrbdodatastore.azurewebsites.net/
 
 
 

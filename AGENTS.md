@@ -99,6 +99,36 @@ Also filter NaN before calling `get_unique_short_names()` — see `../dvue/AGENT
 - Preserve CRS: `EPSG:26910` (UTM Zone 10N) used for map catalog creation. Change only if intentionally re-projecting.
 - Inventory file glob: `inventory_datasets_{repo_level}*.csv`. Multiple versions → `find_lastest_fname()` picks newest.
 
+## Azure Deployment
+
+Production is hosted as an Azure App Service (Linux, sitecontainer) named
+`dwrbdodatastore` (resource group `dwrbdo_dash_rg`), serving
+https://dwrbdodatastore.azurewebsites.net/. The site runs a custom container
+image (`dashcr.azurecr.io/conda-dms_datastore_ui:latest`) that launches
+`repoui.py` (not `run_server.sh`'s `panel serve` — see the module docstring
+in [repoui.py](repoui.py) for why `pn.serve()` is required).
+
+### Required App Service settings (Panel/Bokeh apps need these)
+- **Web sockets: On** (`webSocketsEnabled`). Panel/Bokeh requires a persistent
+  upgraded WebSocket; with this off, Azure's ARR proxies it as a regular HTTP
+  request subject to the platform's ~230s idle timeout, so idle sessions
+  silently drop. Verify/set with:
+  ```
+  az webapp config show -g dwrbdo_dash_rg -n dwrbdodatastore --query webSocketsEnabled
+  az webapp config set -g dwrbdo_dash_rg -n dwrbdodatastore --web-sockets-enabled true
+  ```
+- **Always On: On** (`alwaysOn`) — avoids cold-start/unload after inactivity.
+- If `numberOfWorkers` is ever raised above 1, also enable **ARR affinity**
+  so websocket reconnects route back to the instance holding the in-memory
+  session registry and local `.session_cache` diskcache (both are per-instance,
+  not shared across workers).
+- `repoui.py`'s `pn.serve()` call sets `session_token_expiration` to a large
+  value (not Bokeh's 300s default) so idle browser tabs can still reconnect
+  after the token would otherwise have expired. Keep this set on any future
+  deploy — dropping it reintroduces "loses connection after a few minutes,
+  and retries also fail" (Bokeh raises `ProtocolError("Token is expired...")`
+  on reconnect once the default 5-minute token has elapsed).
+
 ## Testing
 
 | File | What it tests | Requires `--repo`? |
