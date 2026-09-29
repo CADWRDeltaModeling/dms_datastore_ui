@@ -237,7 +237,15 @@ def _serve(repo_dir: str, port: int, address: str, config: Optional[str]) -> Non
         static_dirs=static_dirs,
         allow_websocket_origin=["*"],
         keep_alive=30000,
-        unused_session_lifetime_milliseconds=2_592_000_000,
+        # Bounded (not Bokeh's 15s default, but not unbounded either): every
+        # cookie-less GET / (Azure Always-On ping, health check) spins up a
+        # full heavy DatastoreUIMgr session that never reconnects. A huge
+        # value here let those orphaned sessions accumulate forever, leaking
+        # memory until the container was OOM-restarted -- killing every real
+        # user's connection at once. dvue's own session registry (see
+        # SessionManager) is what actually gives real users cross-reload
+        # continuity, so Bokeh's raw Document does not need to survive long.
+        unused_session_lifetime_milliseconds=1_800_000,
         # Bokeh's default (300s) expires the reconnect token after a few
         # minutes idle; the browser's automatic reconnect then fails
         # permanently with "Token is expired" until the page is reloaded.

@@ -128,6 +128,20 @@ in [repoui.py](repoui.py) for why `pn.serve()` is required).
   deploy — dropping it reintroduces "loses connection after a few minutes,
   and retries also fail" (Bokeh raises `ProtocolError("Token is expired...")`
   on reconnect once the default 5-minute token has elapsed).
+- `unused_session_lifetime_milliseconds` is bounded (30 min), not unbounded.
+  Cookie-less GETs to `/` (Azure Always-On ping every 5 min, plus the
+  `WEBSITE_HEALTHCHECK_MAXPINGFAILURES` health check) each build a brand-new
+  heavy `DatastoreUIMgr` session in `make_newui_app()` since there's no
+  cookie to reuse an existing one. A huge value here let those orphaned
+  sessions accumulate forever, leaking memory until the container was
+  restarted (health-check failure / OOM) — killing every real user's
+  connection at once. Diagnosed via `az monitor metrics list --metric
+  MemoryWorkingSet` (sawtooth pattern) cross-referenced with `az webapp log
+  tail` (`State: Stopping, Action: StoppingSite` events line up with the
+  memory drops). Do not raise this back to a multi-day value — real users
+  get cross-reload continuity from dvue's own `SessionManager`/`_registry`
+  (a plain in-memory dict keyed by `user_id`), not from Bokeh's raw Document
+  lifetime, so a short Bokeh-side lifetime is safe.
 
 ## Testing
 
