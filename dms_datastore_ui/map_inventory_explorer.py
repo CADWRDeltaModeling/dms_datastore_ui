@@ -135,6 +135,13 @@ def find_lastest_fname(pattern, dir="."):
     return fname, mtime
 
 
+def _read_full_repo_series(data_version, station_id, variable, subloc, modifier, repo, data_path):
+    # data_version is only part of the cache key, so a newer inventory invalidates old entries.
+    return dms_datastore.read_ts_repo(
+        station_id, variable, subloc=subloc, repo=repo, modifier=modifier, data_path=data_path
+    )
+
+
 # from stackoverflow.com https://stackoverflow.com/questions/6086976/how-to-get-a-complete-exception-stack-trace-in-python
 def full_stack():
     import traceback, sys
@@ -204,11 +211,8 @@ class StationDatastore(param.Parameterized):
                 print(f"Error initializing temp directory cache: {e2}, falling back to memory cache")
                 self.cache = _MemoryCache()
         self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache is not None else read_ts
-        self.caching_read_ts_repo = (
-            self.cache.memoize()(dms_datastore.read_ts_repo)
-            if self.cache is not None
-            else dms_datastore.read_ts_repo
-        )
+        self._cached_full_repo_series = self.cache.memoize()(_read_full_repo_series)
+        self._data_versions = {}
         # check that repo_levels are valid and set default to first valid
         valid_repo_levels = []
         for repo_level in self.param.repo_level.objects:
@@ -281,6 +285,47 @@ class StationDatastore(param.Parameterized):
 
     def last_part_path(self, dir):
         return os.path.basename(os.path.normpath(dir))
+
+    def _data_version(self, repo_level):
+        """Return a token that changes whenever a newer inventory is published for *repo_level*."""
+        if repo_level not in self._data_versions:
+            fname, mtime = find_lastest_fname(f"inventory_datasets_{repo_level}*.csv", self.dir)
+            self._data_versions[repo_level] = f"{fname.name}:{int(mtime)}" if fname else ""
+        return self._data_versions[repo_level]
+
+    def caching_read_ts_repo(
+        self,
+        station_id,
+        variable,
+        subloc=None,
+        repo=None,
+        modifier=None,
+        data_path=None,
+        start=None,
+        end=None,
+    ):
+        """Cached drop-in for ``read_ts_repo``.
+
+        The full series is cached once per series identity and inventory
+        version, then sliced to ``[start, end]``, so every time window (and the
+        ``repocache.py`` pre-warm, which reads without a window) shares one entry.
+        """
+        if repo is None:
+            repo = dstore_config.config.get("default_repo", "screened")
+        df = self._cached_full_repo_series(
+            self._data_version(repo),
+            station_id,
+            variable,
+            subloc or None,
+            modifier or None,
+            repo,
+            data_path,
+        )
+        if df is None:
+            return None
+        start = pd.to_datetime(start) if start is not None else None
+        end = pd.to_datetime(end) if end is not None else None
+        return df.loc[start:end]
 
     def get_data(self, repo_level, filename):
         matches = self.df_dataset_inventory[

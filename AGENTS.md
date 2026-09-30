@@ -90,9 +90,10 @@ Also filter NaN before calling `get_unique_short_names()` — see `../dvue/AGENT
 
 ### Other Conventions
 - `repo_level` = datastore subdirectory level (e.g. `screened`, `formatted`).
-- `DatastoreCatalogBuilder` creates refs with `cache=False`; `StationDatastore` memoizes `read_ts_repo` via `diskcache`.
+- `DatastoreCatalogBuilder` creates refs with `cache=False`; `StationDatastore.caching_read_ts_repo()` caches `read_ts_repo` via `diskcache`.
 - Subloc normalization: `nan` → empty string (never `None`). Applied in `DatastoreDataReference.from_inventory_row()`.
-- Caching hierarchy: `diskcache.Cache.memoize()` on `read_ts_repo` → `DatastoreFilepathReader` → `DatastoreDataReference`. Do not add caching at multiple layers.
+- Caching hierarchy: `StationDatastore.caching_read_ts_repo()` (diskcache) → `DatastoreFilepathReader` → `DatastoreDataReference`. Do not add caching at multiple layers.
+- The cache key is series identity + newest inventory file name/mtime — never the time window. The full series is cached and sliced to `[start, end]`, so all windows and the `repocache.py` pre-warm share one entry, and publishing a new inventory invalidates it. Never put `start`/`end` (e.g. the `now()`-based default `time_range`) in a cache key.
 - `_sync_repo_level()` watcher (depends on `repo_level` param) keeps `StationDatastore` in sync when the UI param changes.
 - Unit conversion is applied by `_UnitConvertingRef` around `DataReference.getData()`. Never apply it again downstream.
 - Keep catalog metadata columns stable: `station_id`, `subloc`, `param`, `modifier`, `unit`, `min_year`, `max_year`, `geometry`, `repo_level`, `series_id`, and `file_pattern`.

@@ -9,12 +9,16 @@ that:
 No real repository is required; runs with plain `pytest`.
 """
 import os
+import shutil
 import textwrap
+import time
 
 import pandas as pd
 import pytest
 
+import dms_datastore
 from dms_datastore import dstore_config
+from dms_datastore_ui.datastore_uimgr import DatastoreFilepathReader
 from dms_datastore_ui.map_inventory_explorer import StationDatastore
 
 # ---------------------------------------------------------------------------
@@ -262,3 +266,76 @@ class TestStationDatastoreCaching:
         assert n_on_open >= n_after_write, (
             "Second instance should see at least as many cache entries as first instance wrote"
         )
+
+
+class TestRepoSeriesCaching:
+    """caching_read_ts_repo caches one full series per identity and slices per window."""
+
+    @pytest.fixture()
+    def read_calls(self, monkeypatch):
+        calls = []
+        real_read_ts_repo = dms_datastore.read_ts_repo
+
+        def counting_read_ts_repo(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real_read_ts_repo(*args, **kwargs)
+
+        monkeypatch.setattr(dms_datastore, "read_ts_repo", counting_read_ts_repo)
+        return calls
+
+    @staticmethod
+    def _read_anh(ds, start=None, end=None):
+        return ds.caching_read_ts_repo(
+            "anh",
+            "flow",
+            repo="screened",
+            data_path=os.path.join(ds.dir, "screened"),
+            start=start,
+            end=end,
+        )
+
+    def test_different_windows_share_one_entry(self, datastore, read_calls):
+        datastore.cache.clear()
+
+        early = self._read_anh(datastore, "2024-01-01 00:00", "2024-01-01 05:00")
+        late = self._read_anh(datastore, "2024-01-01 12:00", "2024-01-01 23:00")
+
+        assert len(read_calls) == 1
+        assert len(datastore.cache) == 1
+        assert list(early["value"]) == _STATION_A_VALUES[0:6]
+        assert list(late["value"]) == _STATION_A_VALUES[12:24]
+
+    def test_prewarm_serves_reader_time_range(self, datastore, read_calls):
+        """repocache.py pre-warms without a window; UI reads pass a time_range."""
+        datastore.cache.clear()
+        datastore.cache_repo_level(datastore.repo_level[0])
+        n_prewarm_reads = len(read_calls)
+
+        reader = DatastoreFilepathReader(repo_read_fn=datastore.caching_read_ts_repo)
+        df = reader.load(
+            repo_root=datastore.dir,
+            repo_level=datastore.repo_level[0],
+            station_id="anh",
+            subloc="",
+            param="flow",
+            modifier="",
+            time_range=(pd.Timestamp("2024-01-01 06:00"), pd.Timestamp("2024-01-01 08:00")),
+        )
+
+        assert len(read_calls) == n_prewarm_reads
+        assert list(df["value"]) == _STATION_A_VALUES[6:9]
+
+    def test_newer_inventory_invalidates_entry(self, datastore, fake_repo, read_calls):
+        datastore.cache.clear()
+        self._read_anh(datastore)
+
+        newer = fake_repo / "inventory_datasets_screened_20990101.csv"
+        shutil.copy(fake_repo / "inventory_datasets_screened.csv", newer)
+        future = time.time() + 60
+        os.utime(newer, (future, future))
+        ds2 = StationDatastore(str(fake_repo))
+        self._read_anh(ds2)
+        self._read_anh(ds2)
+        ds2.cache.close()
+
+        assert len(read_calls) == 2
