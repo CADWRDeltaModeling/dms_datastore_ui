@@ -11,6 +11,8 @@ python -c "from vtools.functions.error_detect import max_change_test; from dms_d
 # The active cache stays on container-local disk; published snapshots (by default
 # <repo parent>/cache_snapshots) are what survive a container restart.
 export DMS_DATASTORE_UI_CACHE_ROOT="${DMS_DATASTORE_UI_CACHE_ROOT:-/tmp/dms_datastore_ui_cache}"
+# Piped output is block-buffered by default, which hides warm-up progress in caching.log.
+export PYTHONUNBUFFERED=1
 repo_dir="${DMS_DATASTORE_UI_REPO_DIR:-continuous}"
 repo_dir="$(cd "$repo_dir" && pwd)"
 # Reuse or restore a cache snapshot for the current data before the UI opens the cache.
