@@ -56,7 +56,7 @@ class _MemoryCache:
 import dms_datastore
 from dms_datastore import dstore_config
 from dms_datastore.read_ts import read_ts, read_flagged
-from dms_datastore_ui import data_screener, flag_editor
+from dms_datastore_ui import cache_snapshot, data_screener, flag_editor
 
 #
 from vtools.functions.filter import godin, cosine_lanczos
@@ -189,26 +189,36 @@ class StationDatastore(param.Parameterized):
             repos[repo_level]["root"] = os.path.join(self.dir, repo_level)
         dstore_config._repo_cache = None
 
-    def __init__(self, dir, **kwargs):
+    def __init__(self, dir, cache_root=None, **kwargs):
+        """Open the repository at *dir*.
+
+        The series cache lives in a directory named after the repository's data
+        version under *cache_root* (default: ``$DMS_DATASTORE_UI_CACHE_ROOT``,
+        else the working directory), so changed data selects a fresh cache and
+        unchanged data reuses (or restores) the existing one.
+        """
         super().__init__(**kwargs)
         self.dir = os.path.abspath(dir)
         if not os.path.exists(self.dir):
             raise Exception(f"Directory {self.dir} does not exist")
         self._configure_repository_roots()
+        self.data_version = cache_snapshot.compute_data_version(self.dir)
+        self.cache_dir = cache_snapshot.generation_dir(self.dir, self.data_version, cache_root)
         try:
-            self.cache = diskcache.Cache(
-                "cache_" + self.last_part_path(self.dir), size_limit=1e11
-            )
+            os.makedirs(self.cache_dir, exist_ok=True)
+            self.cache = diskcache.Cache(self.cache_dir, size_limit=1e11)
         except Exception as e:
-            print(f"Error initializing cache at local directory: {e}")
+            print(f"Error initializing cache at {self.cache_dir}: {e}")
             try:
-                tmp_cache_dir = os.path.join(
-                    tempfile.gettempdir(), "cache_" + self.last_part_path(self.dir)
+                self.cache_dir = cache_snapshot.generation_dir(
+                    self.dir, self.data_version, tempfile.gettempdir()
                 )
-                self.cache = diskcache.Cache(tmp_cache_dir, size_limit=1e11)
-                print(f"Using temp directory cache: {tmp_cache_dir}")
+                os.makedirs(self.cache_dir, exist_ok=True)
+                self.cache = diskcache.Cache(self.cache_dir, size_limit=1e11)
+                print(f"Using temp directory cache: {self.cache_dir}")
             except Exception as e2:
                 print(f"Error initializing temp directory cache: {e2}, falling back to memory cache")
+                self.cache_dir = None
                 self.cache = _MemoryCache()
         self.caching_read_ts = self.cache.memoize()(read_ts) if self.cache is not None else read_ts
         self._cached_full_repo_series = self.cache.memoize()(_read_full_repo_series)
@@ -368,11 +378,12 @@ class StationDatastore(param.Parameterized):
             print("Cache cleared")
 
     def cache_repo_level(self, repo_level):
-        # get unique filenames
+        """Warm the cache for every dataset; return ``(total, failed_file_patterns)``."""
         if not self.caching:
             raise Exception("Caching is not enabled")
         datasets = self.df_dataset_inventory["file_pattern"].unique()
         print("Caching: ", len(datasets), " datasets")
+        failed = []
         for i, file_pattern in enumerate(datasets):
             print(f"Caching {i} ::{file_pattern}")
             try:
@@ -380,6 +391,8 @@ class StationDatastore(param.Parameterized):
             except Exception as e:
                 print(e)
                 print("Skipping", file_pattern, "due to error")
+                failed.append(str(file_pattern))
+        return len(datasets), failed
 
     def get_uniform_units_data(self, df, param, unit):
         if self.convert_units:
