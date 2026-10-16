@@ -142,3 +142,55 @@ class TestSnapshotLifecycle:
 
         assert _prepare(fake_repo, dirs, rebuild=True) == "built"
         assert len(read_calls) > n_reads
+
+
+class TestFailedSeries:
+    """Bad repository data must not stop a snapshot from being published."""
+
+    @staticmethod
+    def _patch_failures(monkeypatch, station, failures):
+        """Make reads of *station* raise ``failures`` times (``None`` = always)."""
+        real = dms_datastore.read_ts_repo
+        remaining = {"n": failures}
+
+        def flaky(station_id, *args, **kwargs):
+            if station_id == station and (remaining["n"] is None or remaining["n"] > 0):
+                if remaining["n"] is not None:
+                    remaining["n"] -= 1
+                raise ValueError("Overlapping shard windows detected")
+            return real(station_id, *args, **kwargs)
+
+        monkeypatch.setattr(dms_datastore, "read_ts_repo", flaky)
+
+    def test_bad_series_is_recorded_and_snapshot_published(self, fake_repo, dirs, monkeypatch):
+        monkeypatch.setattr(cs, "MAX_FAILED_FRACTION", 0.6)  # 1 of the 2 fake series fails
+        self._patch_failures(monkeypatch, "sac", failures=None)
+
+        assert _prepare(fake_repo, dirs) == "built"
+
+        version = cs.compute_data_version(fake_repo, use_memo=False)
+        _, manifest = cs.find_snapshot(str(fake_repo), version, dirs["snapshot_dir"])
+        assert manifest["failed"] == 1
+        assert len(manifest["failed_series"]) == 1
+
+    def test_transient_failure_is_retried(self, fake_repo, dirs, monkeypatch):
+        self._patch_failures(monkeypatch, "sac", failures=1)
+
+        assert _prepare(fake_repo, dirs) == "built"
+
+        version = cs.compute_data_version(fake_repo, use_memo=False)
+        _, manifest = cs.find_snapshot(str(fake_repo), version, dirs["snapshot_dir"])
+        assert manifest["failed"] == 0
+
+    def test_mostly_failing_warmup_is_rejected(self, fake_repo, dirs, monkeypatch):
+        def always_fail(*args, **kwargs):
+            raise ValueError("share unavailable")
+
+        monkeypatch.setattr(dms_datastore, "read_ts_repo", always_fail)
+
+        assert _prepare(fake_repo, dirs) == "failed"
+
+        version = cs.compute_data_version(fake_repo, use_memo=False)
+        generation = cs.generation_dir(str(fake_repo), version, dirs["cache_root"])
+        assert not cs.is_ready(generation, version)
+        assert cs.find_snapshot(str(fake_repo), version, dirs["snapshot_dir"]) is None

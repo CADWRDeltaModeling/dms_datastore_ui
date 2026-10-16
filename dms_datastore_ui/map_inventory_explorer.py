@@ -378,7 +378,11 @@ class StationDatastore(param.Parameterized):
             print("Cache cleared")
 
     def cache_repo_level(self, repo_level):
-        """Warm the cache for every dataset; return ``(total, failed_file_patterns)``."""
+        """Warm the cache for every dataset; return ``(total, failed_file_patterns)``.
+
+        Failed datasets are retried once so transient read errors don't count
+        against the cache; the remainder are bad-data failures.
+        """
         if not self.caching:
             raise Exception("Caching is not enabled")
         datasets = self.df_dataset_inventory["file_pattern"].unique()
@@ -391,8 +395,16 @@ class StationDatastore(param.Parameterized):
             except Exception as e:
                 print(e)
                 print("Skipping", file_pattern, "due to error")
-                failed.append(str(file_pattern))
-        return len(datasets), failed
+                failed.append(file_pattern)
+        still_failed = []
+        for file_pattern in failed:
+            print(f"Retrying {file_pattern}")
+            try:
+                self.get_data(repo_level, file_pattern)
+            except Exception as e:
+                print(f"Still failing: {file_pattern}: {e}")
+                still_failed.append(str(file_pattern))
+        return len(datasets), still_failed
 
     def get_uniform_units_data(self, df, param, unit):
         if self.convert_units:

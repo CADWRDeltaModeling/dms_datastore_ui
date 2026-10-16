@@ -41,8 +41,11 @@ READY_NAME = "ready.json"
 MANIFEST_NAME = "manifest.json"
 ARCHIVE_NAME = "cache.tar"
 KEEP_SNAPSHOTS = 2
-# A warm-up with more failed series than this is not trusted or published.
-MAX_FAILED_FRACTION = 0.01
+# Individual series can fail deterministically on bad repository data (overlapping
+# shards, unresolved frequencies); those are recorded, not fatal. A warm-up where
+# more than this fraction fails points at the environment (e.g. an unmounted
+# share) and is neither trusted nor published.
+MAX_FAILED_FRACTION = 0.25
 
 _VERSION_TTL_SECONDS = 300
 _version_memo = {}
@@ -381,7 +384,7 @@ def warm_cache(repo_dir, cache_root=None, snapshot_dir=None, rebuild=False, publ
             "data_version": version,
             "expected": expected,
             "failed": len(failed),
-            "failed_series": failed[:50],
+            "failed_series": failed[:200],
             "entries": len(datastore.cache),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
