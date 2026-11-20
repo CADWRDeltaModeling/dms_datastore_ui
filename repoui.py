@@ -28,6 +28,7 @@ print(f"[repoui] dms_datastore_ui logging active, level={logging.getLevelName(_d
 #   Layer 2 — diskcache (server-restart fallback, persist=True)
 
 import panel as pn
+import panel_material_ui as pmui
 from pathlib import Path
 import pandas as pd
 from dms_datastore_ui.server_plugins import (
@@ -60,7 +61,7 @@ pn.extension(
     "codeeditor",
     notifications=True,
     reconnect=True,
-    design="native",
+    design="material",
     disconnect_notification="Connection lost, try reloading the page!",
     ready_notification="Application fully loaded.",
 )
@@ -79,6 +80,10 @@ import dms_datastore_ui.map_inventory_explorer  # noqa: F401
 from dms_datastore_ui.datastore_uimgr import DatastoreUIMgr  # noqa: F401
 from dvue.dataui import DataUI  # noqa: F401
 import cartopy.crs as ccrs
+
+# map_inventory_explorer sets design="native" at import; DataUI renders inside a
+# pmui.Page, so restore the Material design for everything created afterwards.
+pn.extension(design="material")
 
 # ── [3] Repo directory (override via CLI arg or environment) ─────────────────
 _REPO_DIR = "continuous"
@@ -131,13 +136,12 @@ def make_newui_app():
             value=True, color="primary", size=50, name="Loading..."
         )
     )
-    template = pn.template.VanillaTemplate(
+    template = pmui.Page(
         title="DMS Datastore",
         sidebar=[sidebar_panel],
         main=[main_panel],
         sidebar_width=650,
-        header_color="blue",
-        logo="dms_datastore_ui/california-department-of-water-resources-logo.png",
+        logo=str(Path(__file__).parent / "dms_datastore_ui" / "california-department-of-water-resources-logo.png"),
     )
 
     def load_dataui():
@@ -149,22 +153,15 @@ def make_newui_app():
             _restore(uimgr, saved)
 
         ui = DataUI(uimgr, crs=ccrs.epsg(26910))
-        ui_template = ui.create_view()
+        ui_page = ui.create_view(title="DMS Datastore")
 
-        sidebar_items = list(ui_template.sidebar)
-        main_items    = list(ui_template.main)
-        ui_template.sidebar.clear()
-        ui_template.main.clear()
-        ui_template.modal.clear()
-
-        sidebar_panel.objects = sidebar_items
-        main_panel.objects    = main_items
-
-        # Wire About (and optional Disclaimer) buttons to the outer VanillaTemplate
-        # so that open_modal() targets the correct served template.
-        # add_header_buttons also populates template.modal with the about text.
-        template.modal.clear()
-        ui.add_header_buttons(template)
+        # Move the built content into the already-served outer Page.  The About /
+        # Disclaimer dialog lives in ui_page.main, so it moves along with it and
+        # the header buttons built by create_view() keep working.
+        sidebar_panel.objects = list(ui_page.sidebar)
+        main_panel.objects    = list(ui_page.main)
+        template.header       = list(ui_page.header)
+        ui_page.sidebar, ui_page.main, ui_page.header = [], [], []
 
         _session_mgr.set_entry(reg_key, {
             "template": template, "mode": "dataui",
