@@ -23,8 +23,13 @@ dependencies:
   - geoviews
   - holoviews
   - jupyter_bokeh
-  - panel
-  - panel-material-ui
+  # dvue is installed by pip below and requires these versions.  Keep the
+  # floors here so conda installs satisfying builds and pip does not upgrade
+  # (and clobber) conda-managed packages.  conda-forge's newest
+  # panel-material-ui is 0.16.6, so do not raise that floor above it.
+  - panel>=1.10
+  - panel-material-ui>=0.16.6
+  - bokeh>=3.10
   - sqlite # =3.47.2 # temporary pinning
   - diskcache
   - joblib
