@@ -3,9 +3,12 @@ import logging
 import time
 import glob
 import re
+import copy
+from functools import lru_cache
 from pathlib import Path
 import param
 import panel as pn
+import panel_material_ui as pmui
 import pandas as pd
 from shapely.geometry import Point
 from dvue.actions import (
@@ -41,6 +44,36 @@ logger = logging.getLogger(__name__)
 # UTM Zone 10N (EPSG:26910) -> WGS84 (EPSG:4326), used to reproject the
 # registry's adjusted x/y coordinates for display alongside lat/lon.
 _UTM10N_TO_WGS84 = Transformer.from_crs("EPSG:26910", "EPSG:4326", always_xy=True)
+
+
+@lru_cache(maxsize=8)
+def _shared_d1641_reference_templates(wyt_file, wyt_mtime, specs_key, current_wy):
+    """Build immutable D-1641 reference templates once per WYT generation."""
+    from dms_datastore_ui.d1641_standards import (
+        D1641StandardSpec,
+        build_d1641_references,
+    )
+
+    specs = [
+        D1641StandardSpec(
+            name=name,
+            csv_filename=filename,
+            unit_scale=unit_scale,
+            unit=unit,
+            dsm2_locations=list(locations),
+        )
+        for name, filename, unit_scale, unit, locations in specs_key
+    ]
+    return tuple(build_d1641_references(wyt_file, standards=specs))
+
+
+def _clone_d1641_reference(template):
+    """Clone mutable catalog state while sharing the stateless reader/cache layer."""
+    ref = copy.copy(template)
+    ref._attributes = dict(template._attributes)
+    ref._cached_data = {}
+    ref._dynamic_metadata = dict(template._dynamic_metadata)
+    return ref
 
 
 class DatastoreFilepathReader(DataReferenceReader):
@@ -475,7 +508,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     repo_level = param.ListSelector(
         objects=["screened"],
         default=["screened"],
-        doc="Repository level (sub-directory) under which data is found. Ctrl+click to select multiple.",
+        doc="Repository levels (sub-directories) to search. Select multiple values independently.",
     )
 
     unit_conversion = param.Boolean(
@@ -486,7 +519,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     parameter_type = param.ListSelector(
         objects=["all"],
         default=["all"],
-        doc="Filter map and table to these parameter types. Ctrl+click to select multiple, or choose 'all'.",
+        doc="Filter the map and table to selected parameter types. Choose 'all' for no restriction.",
     )
 
     year_range = param.Range(
@@ -503,9 +536,14 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         label="Water year type band opacity",
         doc=(
             "Opacity of water year type background shading in time series plots. "
-            "0 = off. Colors: Wet = blue \u2192 Critical = red. "
-            "Requires re-plotting to take effect after changing."
+            "0 = off. Colors: Wet = blue \u2192 Critical = red."
         ),
+    )
+    default_window_years = param.Integer(
+        default=2,
+        bounds=(1, 20),
+        label="Default plot window (years)",
+        doc="Number of catalog years shown initially and after changing the repository.",
     )
 
     def __init__(self, dir, repo_level="screened", wyt_file=None, d1641_standards_specs=None, **kwargs):
@@ -527,14 +565,31 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         if wyt_file:
             from dms_datastore_ui.d1641_standards import (
                 DEFAULT_STANDARDS,
-                build_d1641_references,
                 read_hist_wateryear_types,
                 fetch_current_wyt,
             )
             specs = d1641_standards_specs if d1641_standards_specs is not None else DEFAULT_STANDARDS
             try:
                 self._wyt_df = read_hist_wateryear_types(wyt_file)
-                d1641_refs = build_d1641_references(wyt_file, standards=specs)
+                wyt_mtime = os.path.getmtime(wyt_file)
+                today = pd.Timestamp.now()
+                current_wy = today.year + 1 if today.month >= 10 else today.year
+                templates = _shared_d1641_reference_templates(
+                    wyt_file,
+                    wyt_mtime,
+                    tuple(
+                        (
+                            spec.name,
+                            spec.csv_filename,
+                            spec.unit_scale,
+                            spec.unit,
+                            tuple(spec.dsm2_locations),
+                        )
+                        for spec in specs
+                    ),
+                    current_wy,
+                )
+                d1641_refs = [_clone_d1641_reference(ref) for ref in templates]
                 for ref in d1641_refs:
                     self._catalog.add(ref)
                 logger.info("Added %d D-1641 standard references to catalog", len(d1641_refs))
@@ -884,6 +939,16 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         """Keep the StationDatastore in sync when repo_level changes."""
         self.datastore.repo_level = self.repo_level
 
+    @param.depends("wyt_band_alpha", watch=True)
+    def _refresh_wyt_shading(self):
+        """Re-run the active selection so WYT shading updates immediately."""
+        dataui = getattr(self, "_dataui", None)
+        if dataui is None or getattr(dataui, "display_table", None) is None:
+            return
+        if not dataui.display_table.selection:
+            return
+        self._make_plot_action().callback(None, dataui)
+
     @param.depends("parameter_type", "year_range", watch=True)
     def _sync_map_query(self):
         """Push a pandas query string to DataUI when map filters change."""
@@ -915,7 +980,12 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         widget_tabs = super().get_widgets()
         # "Data" tab: repo_level selector + unit conversion toggle
         widget_tabs["Data"] = pn.WidgetBox(
-            self.param.repo_level,
+            pmui.MultiChoice.from_param(
+                self.param.repo_level,
+                label="Repository levels",
+                description="Choose one or more repository processing levels.",
+                sizing_mode="stretch_width",
+            ),
             self.param.unit_conversion,
         )
         # Extend "Plot" tab with WYT background opacity slider when WYT data is loaded.
@@ -923,7 +993,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             wyt_section = pn.WidgetBox(
                 pn.pane.Markdown(
                     "**Water Year Type Background:**\n\n"
-                    "Blue = Wet \u00b7 Critical = Red. Re-plot to apply.",
+                    "Blue = Wet \u00b7 Critical = Red.",
                     margin=(4, 4, 0, 4),
                 ),
                 pn.widgets.FloatSlider.from_param(
@@ -944,47 +1014,63 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         """Extra widgets injected into the Map Options sidebar tab."""
         return pn.WidgetBox(
             "Filter Map",
-            self.param.parameter_type,
+            pmui.MultiChoice.from_param(
+                self.param.parameter_type,
+                label="Parameter types",
+                description="Choose one or more parameter types, or select 'all'.",
+                sizing_mode="stretch_width",
+            ),
             self.param.year_range,
         )
 
     def get_data_actions(self):
         actions = super().get_data_actions()
-        actions.extend([
+        for action in actions:
+            if action.get("name") != "Plot":
+                action["button_type"] = "light"
+        actions.append(
             dict(
-                name="Data Screener",
-                button_type="primary",
-                icon="table",
-                action_type="display",
-                callback=DataScreenerAction().callback,
-            ),
-            dict(
-                name="Flag Editor",
-                button_type="primary",
-                icon="flag",
-                action_type="display",
-                callback=FlagEditorAction().callback,
-            ),
-            dict(
-                name="Gap Visualizer",
-                button_type="primary",
-                icon="chart-bar",
-                action_type="display",
-                callback=GapVisualizerAction().callback,
-            ),
-        ])
+                name="Data Tools",
+                button_type="light",
+                icon="tool",
+                action_type="menu",
+                selection_required=True,
+                items=["Data Screener", "Flag Editor", "Gap Visualizer"],
+                callbacks={
+                    "Data Screener": DataScreenerAction().callback,
+                    "Flag Editor": FlagEditorAction().callback,
+                    "Gap Visualizer": GapVisualizerAction().callback,
+                },
+            )
+        )
         return actions
 
     def _make_plot_action(self):
         return DatastorePlotAction()
 
     def get_time_range(self, dfcat):
-        """Convert year integers to datetime objects for CalendarDateRange parameter"""
-        import datetime
-
+        """Return a configurable recent window aligned to the catalog's newest year."""
+        max_year = None
+        if dfcat is not None and "max_year" in dfcat.columns:
+            archive_catalog = dfcat
+            if "source" in archive_catalog.columns:
+                archive_catalog = archive_catalog[
+                    archive_catalog["source"].astype(str) != "d1641"
+                ]
+            years = pd.to_numeric(
+                archive_catalog["max_year"], errors="coerce"
+            ).dropna()
+            if not years.empty:
+                max_year = int(years.max())
+        if max_year is None:
+            max_year = pd.Timestamp.now().year
+        start_year = max_year - self.default_window_years + 1
         return (
-            datetime.datetime.now() - datetime.timedelta(days=30),
-            datetime.datetime.now(),
+            pd.Timestamp(year=start_year, month=1, day=1).to_pydatetime(),
+            pd.Timestamp(
+                year=max_year, month=12, day=31,
+                hour=23, minute=59, second=59,
+            ).to_pydatetime(),
         )
 
     def build_station_name(self, r):
@@ -1006,7 +1092,10 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
                 "name",       # hidden; catalog key used by get_data_reference()
             ],
             "optional_columns": ["filename", "series_id"],
-            "hidden_by_default": ["modifier", "file_pattern", "filename", "series_id", "name"],
+            "hidden_by_default": [
+                "modifier", "file_pattern", "filename", "series_id", "name",
+                "agency_id_dbase",
+            ],
             "drop_if_all_null": False,
             "column_widths": {
                 "station_id": "10%",

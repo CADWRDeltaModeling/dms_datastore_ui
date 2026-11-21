@@ -1,5 +1,6 @@
 import logging
 import sys
+import asyncio
 from typing import Optional
 
 # Logging setup runs once at server start (not per-session as with panel serve).
@@ -125,11 +126,18 @@ def make_newui_app():
         return
 
     # ── Build a fresh session ─────────────────────────────────────────────────
+    loading_status = pn.pane.Markdown(
+        "**Loading saved state and repository metadata...**",
+        sizing_mode="stretch_width",
+        align="center",
+    )
     main_panel = pn.Column(
         pn.indicators.LoadingSpinner(
             value=True, color="primary", size=50, name="Loading..."
         ),
+        loading_status,
         sizing_mode="stretch_both",
+        align="center",
     )
     sidebar_panel = pn.Column(
         pn.indicators.LoadingSpinner(
@@ -140,18 +148,27 @@ def make_newui_app():
         title="DMS Datastore",
         sidebar=[sidebar_panel],
         main=[main_panel],
-        sidebar_width=650,
+        sidebar_width=320,
+        sidebar_open=False,
+        sidebar_variant="auto",
         logo=str(Path(__file__).parent / "dms_datastore_ui" / "california-department-of-water-resources-logo.png"),
     )
 
-    def load_dataui():
+    async def load_dataui():
+        await asyncio.sleep(0)
         saved = _session_mgr.load_state(user_id)
         from dms_datastore_ui.d1641_standards import get_default_wyt_file
+        loading_status.object = (
+            "**Preparing repository inventory, catalog references, and water-year types...**"
+        )
+        await asyncio.sleep(0)
         uimgr = DatastoreUIMgr(_REPO_DIR, wyt_file=get_default_wyt_file())
         uimgr.show_reset_session_button = True  # reset button wired in DataUI action row
         if saved:
             _restore(uimgr, saved)
 
+        loading_status.object = "**Building the map, table, plot controls, and actions...**"
+        await asyncio.sleep(0)
         ui = DataUI(uimgr, crs=ccrs.epsg(26910))
         ui_page = ui.create_view(title="DMS Datastore")
 

@@ -468,6 +468,12 @@ def fetch_current_wyt(cache_dir: str | None = None) -> dict:
 
     cache_path = cache_dir or str(Path.home() / ".dms_datastore_ui" / "wsi_cache")
     key = f"wsi_wyt_{today.year}_{today.month:02d}"
+    memory_key = (str(Path(cache_path).resolve()), key)
+    memory_cached = _current_wyt_cache.get(memory_key)
+    if memory_cached is not None:
+        result = dict(memory_cached)
+        result["source"] = "wsi_cached"
+        return result
 
     cache = None
     try:
@@ -476,6 +482,7 @@ def fetch_current_wyt(cache_dir: str | None = None) -> dict:
         if cached is not None:
             result = dict(cached)
             result["source"] = "wsi_cached"
+            _current_wyt_cache[memory_key] = result
             return result
     except Exception as exc:
         logger.warning("WSI cache read failed (%s): %s", cache_path, exc)
@@ -488,6 +495,7 @@ def fetch_current_wyt(cache_dir: str | None = None) -> dict:
         except Exception as exc:
             logger.warning("WSI cache write failed: %s", exc)
 
+    _current_wyt_cache[memory_key] = result
     return result
 
 
@@ -509,6 +517,7 @@ def fetch_current_wyt(cache_dir: str | None = None) -> dict:
 _wyt_hist_cache: Dict[Tuple[str, float], pd.DataFrame] = {}
 _regulation_cache: Dict[Tuple[str, str, int, Optional[str]], pd.DataFrame] = {}
 _standard_series_cache: Dict[Tuple[str, str, str, int, Optional[str]], pd.DataFrame] = {}
+_current_wyt_cache: Dict[Tuple[str, str], dict] = {}
 
 
 def clear_d1641_cache() -> None:
@@ -520,6 +529,7 @@ def clear_d1641_cache() -> None:
     _wyt_hist_cache.clear()
     _regulation_cache.clear()
     _standard_series_cache.clear()
+    _current_wyt_cache.clear()
 
 
 # ---------------------------------------------------------------------------

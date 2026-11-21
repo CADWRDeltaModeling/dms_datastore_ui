@@ -142,6 +142,50 @@ def _read_full_repo_series(data_version, station_id, variable, subloc, modifier,
     )
 
 
+@functools.lru_cache(maxsize=8)
+def _shared_inventory_snapshot(inventory_file, inventory_mtime):
+    """Parse and normalize an inventory once per published inventory version."""
+    df_dataset = pd.read_csv(inventory_file)
+    df_dataset = df_dataset.rename(
+        columns={"agency_id_registry": "agency_id_dbase"}
+    )
+    if "file_pattern" not in df_dataset.columns:
+        df_dataset["file_pattern"] = df_dataset["filename"]
+    if "filename" not in df_dataset.columns:
+        df_dataset["filename"] = df_dataset["file_pattern"]
+    if "modifier" not in df_dataset.columns:
+        df_dataset["modifier"] = ""
+    df_dataset["modifier"] = df_dataset["modifier"].fillna("")
+    df_dataset["subloc"] = df_dataset["subloc"].fillna("")
+
+    group_cols = [
+        "station_id",
+        "subloc",
+        "name",
+        "unit",
+        "param",
+        "modifier",
+        "min_year",
+        "max_year",
+        "agency",
+        "agency_id_dbase",
+        "x",
+        "y",
+    ]
+    df_station = (
+        df_dataset.groupby(group_cols, dropna=False)
+        .count()
+        .reset_index()[group_cols]
+    )
+    return (
+        df_dataset,
+        df_station,
+        tuple(df_dataset["param"].unique()),
+        int(df_station["min_year"].min()),
+        int(df_station["max_year"].max()),
+    )
+
+
 # from stackoverflow.com https://stackoverflow.com/questions/6086976/how-to-get-a-complete-exception-stack-trace-in-python
 def full_stack():
     import traceback, sys
@@ -163,12 +207,12 @@ class StationDatastore(param.Parameterized):
     repo_level = param.ListSelector(
         objects=["screened"],
         default=["screened"],
-        doc="repository level (sub directory) under which data is found. You can select multiple repo levels (ctrl+click)",
+        doc="Repository levels (sub-directories) to search. Select multiple values independently.",
     )
     parameter_type = param.ListSelector(
         objects=["all"],
         default=["all"],
-        doc="parameter type of data, e.g. flow, elev, temp, etc. You can select multiple parameters (ctrl+click) or all",
+        doc="Parameter types to show, for example flow, elevation, or temperature. Choose 'all' for no restriction.",
     )
     apply_filter = param.Boolean(default=False, doc="Apply tidal filter to data")
     filter_type = param.Selector(
@@ -247,51 +291,19 @@ class StationDatastore(param.Parameterized):
                 f"Could not find inventory_datasets_{selected_repo_level}*.csv file in {self.dir}"
             )
         print("Using inventory file: ", self.inventory_file)
-        self.df_dataset_inventory = pd.read_csv(
-            os.path.join(self.dir, self.inventory_file)
-        )
-        # Normalize registry metadata while retaining the current logical
-        # inventory fields (series_id, file_pattern, and modifier).
-        self.df_dataset_inventory = self.df_dataset_inventory.rename(
-            columns={
-                "agency_id_registry": "agency_id_dbase",
-            }
-        )
-        if "file_pattern" not in self.df_dataset_inventory.columns:
-            self.df_dataset_inventory["file_pattern"] = self.df_dataset_inventory["filename"]
-        if "filename" not in self.df_dataset_inventory.columns:
-            self.df_dataset_inventory["filename"] = self.df_dataset_inventory["file_pattern"]
-        if "modifier" not in self.df_dataset_inventory.columns:
-            self.df_dataset_inventory["modifier"] = ""
-        self.df_dataset_inventory["modifier"] = self.df_dataset_inventory["modifier"].fillna("")
-        # replace nan with empty string for column subloc
-        self.df_dataset_inventory["subloc"] = self.df_dataset_inventory[
-            "subloc"
-        ].fillna("")
-        self.unique_params = self.df_dataset_inventory["param"].unique()
+        (
+            dataset_snapshot,
+            station_snapshot,
+            unique_params,
+            snapshot_min_year,
+            snapshot_max_year,
+        ) = _shared_inventory_snapshot(str(self.inventory_file), mtime)
+        self.df_dataset_inventory = dataset_snapshot.copy(deep=True)
+        self.df_station_inventory = station_snapshot.copy(deep=True)
+        self.unique_params = list(unique_params)
         self.param.parameter_type.objects = ["all"] + list(self.unique_params)
-        group_cols = [
-            "station_id",
-            "subloc",
-            "name",
-            "unit",
-            "param",
-            "modifier",
-            "min_year",
-            "max_year",
-            "agency",
-            "agency_id_dbase",
-            "x",
-            "y",
-        ]
-        self.df_station_inventory = (
-            self.df_dataset_inventory.groupby(group_cols, dropna=False)
-            .count()
-            .reset_index()[group_cols]
-        )
-        # calculate min (min year) and max of max_year
-        self.min_year = self.df_station_inventory["min_year"].min()
-        self.max_year = self.df_station_inventory["max_year"].max()
+        self.min_year = snapshot_min_year
+        self.max_year = snapshot_max_year
 
     def last_part_path(self, dir):
         return os.path.basename(os.path.normpath(dir))
@@ -1122,11 +1134,21 @@ class StationInventoryExplorer(param.Parameterized):
         return about_btn
 
     def create_view(self):
+        parameter_type_w = pn.widgets.MultiChoice.from_param(
+            self.station_datastore.param.parameter_type,
+            name="Parameter types",
+            sizing_mode="stretch_width",
+        )
+        repo_level_w = pn.widgets.MultiChoice.from_param(
+            self.station_datastore.param.repo_level,
+            name="Repository levels",
+            sizing_mode="stretch_width",
+        )
         control_widgets = pn.Row(
             pn.Column(
                 pn.WidgetBox(
                     "Map Options",
-                    self.station_datastore.param.parameter_type,
+                    parameter_type_w,
                     self.param.use_symbols_for_params,
                     self.param.map_color_category,
                     self.param.query,
@@ -1143,7 +1165,7 @@ class StationInventoryExplorer(param.Parameterized):
                         }
                     },
                 ),
-                self.station_datastore.param.repo_level,
+                repo_level_w,
                 pn.WidgetBox(
                     self.station_datastore.param.apply_filter,
                     self.station_datastore.param.filter_type,
