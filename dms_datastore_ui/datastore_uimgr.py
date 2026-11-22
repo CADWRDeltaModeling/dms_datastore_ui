@@ -614,15 +614,6 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
         # Sync parameter_type choices from the datastore inventory.
         unique_params = list(self.datastore.unique_params)
         self.param.parameter_type.objects = ["all"] + unique_params
-        # If D-1641 refs were added, include their param names in the type selector.
-        if wyt_file:
-            from dms_datastore_ui.d1641_standards import DEFAULT_STANDARDS
-            specs = d1641_standards_specs if d1641_standards_specs is not None else DEFAULT_STANDARDS
-            d1641_param_names = [s.name for s in specs]
-            existing = self.param.parameter_type.objects
-            self.param.parameter_type.objects = existing + [
-                p for p in d1641_param_names if p not in existing
-            ]
         # Sync year_range bounds from inventory.
         min_yr = int(self.datastore.min_year)
         max_yr = int(self.datastore.max_year)
@@ -1078,7 +1069,7 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
     def build_station_name(self, r):
         # Build a unique station name from row data
         subloc = r["subloc"] if pd.notna(r["subloc"]) and r["subloc"] else ""
-        return f"{r['station_id']}{subloc}"
+        return f"{r['station_id']}@{subloc}" if subloc else str(r["station_id"])
 
     # display related support for tables
     def get_table_schema(self, df=None):

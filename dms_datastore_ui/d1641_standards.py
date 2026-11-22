@@ -887,13 +887,14 @@ def build_d1641_references(
                 name=f"{station_id}_{spec.name}",
                 cache=False,   # always recalculate — current year WYT changes monthly
                 station_id=station_id,
-                subloc="",
-                param=spec.name,
+                subloc=spec.name,
+                param="ec",
                 unit=spec.unit,
                 agency="swrcb",
                 agency_id_dbase=dsm2_loc,  # DSM2 model station ID, e.g. "RSAC092"
                 station_name=f"D-1641 {spec.name} at {station_name}",
-                variable=spec.name,
+                variable="ec",
+                d1641_standard=spec.name,
                 id=station_id,
                 min_year=start_wy - 1,
                 max_year=catalog_max_year,

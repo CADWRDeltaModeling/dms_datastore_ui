@@ -158,7 +158,9 @@ def test_build_d1641_references_station_ids(wyt_file):
 def test_build_d1641_references_params(wyt_file):
     refs = build_d1641_references(wyt_file)
     params = {r.get_attribute("param") for r in refs}
-    assert params == {
+    sublocations = {r.get_attribute("subloc") for r in refs}
+    assert params == {"ec"}
+    assert sublocations == {
         "D1641_AG_WI", "D1641_FWS_SJR",
         "D1641_AG_S_DELTA", "D1641_AG_EXPORT",
         "D1641_FWS_SUISUN",
@@ -169,7 +171,7 @@ def test_build_d1641_references_params(wyt_file):
 def test_build_d1641_references_units(wyt_file):
     refs = build_d1641_references(wyt_file)
     for ref in refs:
-        param = ref.get_attribute("param")
+        param = ref.get_attribute("subloc")
         unit  = ref.get_attribute("unit")
         if param in ("D1641_MI_250", "D1641_MI_150"):
             assert unit == "mg/L", f"Expected mg/L for {param}, got {unit}"
@@ -195,10 +197,13 @@ def test_build_d1641_references_agency_id_dbase(wyt_file):
     assert by_name["rsl_D1641_MI_150"]     == "ROLD024"
 
 
-def test_build_d1641_references_subloc_empty(wyt_file):
+def test_build_d1641_references_subloc_is_standard_name(wyt_file):
     refs = build_d1641_references(wyt_file)
     for ref in refs:
-        assert ref.get_attribute("subloc") == ""
+        assert ref.get_attribute("subloc")
+        assert ref.get_attribute("param") == "ec"
+        assert ref.get_attribute("variable") == "ec"
+        assert ref.get_attribute("d1641_standard") == ref.get_attribute("subloc")
 
 
 def test_build_d1641_references_geometry(wyt_file):
@@ -287,7 +292,8 @@ def test_custom_standards_single(wyt_file):
     specs = [s for s in DEFAULT_STANDARDS if s.name == "D1641_AG_WI"]
     refs = build_d1641_references(wyt_file, standards=specs)
     assert len(refs) == 4  # emm + jer + sti + sal
-    assert all(r.get_attribute("param") == "D1641_AG_WI" for r in refs)
+    assert all(r.get_attribute("param") == "ec" for r in refs)
+    assert all(r.get_attribute("subloc") == "D1641_AG_WI" for r in refs)
 
 
 def test_custom_station_id_map(wyt_file):
