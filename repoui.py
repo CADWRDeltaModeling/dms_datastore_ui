@@ -169,7 +169,11 @@ def make_newui_app():
 
         loading_status.object = "**Building the map, table, plot controls, and actions...**"
         await asyncio.sleep(0)
-        ui = DataUI(uimgr, crs=ccrs.epsg(26910))
+        ui = DataUI(
+            uimgr,
+            crs=ccrs.epsg(26910),
+            initial_map_extent=(-122.65, 37.55, -121.15, 38.75),
+        )
         ui_page = ui.create_view(title="DMS Datastore")
 
         # Move the built content into the already-served outer Page.  The About /
