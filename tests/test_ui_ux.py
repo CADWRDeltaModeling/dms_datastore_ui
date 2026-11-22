@@ -37,8 +37,8 @@ def test_default_time_range_uses_catalog_years_and_is_configurable():
     manager = _bare_manager()
     catalog = pd.DataFrame(
         {
-            "max_year": [2010, 2024, 2027],
-            "source": ["archive", "archive", "d1641"],
+            "max_year": [2010, 2024, 2039, 2027],
+            "source": ["archive", "archive", "forecast", "d1641"],
         }
     )
 

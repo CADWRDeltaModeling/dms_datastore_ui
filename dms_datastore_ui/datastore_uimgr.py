@@ -1060,6 +1060,8 @@ class DatastoreUIMgr(TimeSeriesDataUIManager):
             years = pd.to_numeric(
                 archive_catalog["max_year"], errors="coerce"
             ).dropna()
+            current_year = pd.Timestamp.now().year
+            years = years[years <= current_year]
             if not years.empty:
                 max_year = int(years.max())
         if max_year is None:
