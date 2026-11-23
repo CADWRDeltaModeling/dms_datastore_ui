@@ -148,7 +148,7 @@ def make_newui_app():
         title="DMS Datastore",
         sidebar=[sidebar_panel],
         main=[main_panel],
-        sidebar_width=320,
+        sidebar_width=400,
         sidebar_open=False,
         sidebar_variant="auto",
         logo=str(Path(__file__).parent / "dms_datastore_ui" / "california-department-of-water-resources-logo.png"),
