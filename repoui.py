@@ -1,6 +1,5 @@
 import logging
 import sys
-import asyncio
 from typing import Optional
 
 # Logging setup runs once at server start (not per-session as with panel serve).
@@ -29,7 +28,6 @@ print(f"[repoui] dms_datastore_ui logging active, level={logging.getLevelName(_d
 #   Layer 2 — diskcache (server-restart fallback, persist=True)
 
 import panel as pn
-import panel_material_ui as pmui
 from pathlib import Path
 import pandas as pd
 from dms_datastore_ui.server_plugins import (
@@ -101,80 +99,46 @@ def make_newui_app():
     user_id  = _session_mgr.current_user_id
     reg_key  = _session_mgr.make_reg_key(user_id, "newui")
 
-    # ── Build a fresh session ─────────────────────────────────────────────────
-    # Persisted state restores a user's selections, but the Panel/Bokeh models
-    # themselves must belong to exactly one Bokeh Document.
-    loading_status = pn.pane.Markdown(
-        "**Loading saved state and repository metadata...**",
-        sizing_mode="stretch_width",
-        align="center",
+    # Build the final page before it enters a Bokeh Document. Replacing the
+    # loading placeholders after servable() creates stale client models under
+    # Panel 1.11, whose Bokeh patches can reference already-removed model IDs.
+    saved = _session_mgr.load_state(user_id)
+    from dms_datastore_ui.d1641_standards import get_default_wyt_file
+    uimgr = DatastoreUIMgr(_REPO_DIR, wyt_file=get_default_wyt_file())
+    uimgr.show_reset_session_button = True
+    if saved:
+        _restore(uimgr, saved)
+
+    ui = DataUI(
+        uimgr,
+        crs=ccrs.epsg(26910),
+        initial_map_extent=(-122.65, 37.55, -121.15, 38.75),
     )
-    main_panel = pn.Column(
-        pn.indicators.LoadingSpinner(
-            value=True, color="primary", size=50, name="Loading..."
-        ),
-        loading_status,
-        sizing_mode="stretch_both",
-        align="center",
-    )
-    sidebar_panel = pn.Column(
-        pn.indicators.LoadingSpinner(
-            value=True, color="primary", size=50, name="Loading..."
-        )
-    )
-    template = pmui.Page(
-        title="DMS Datastore",
-        sidebar=[sidebar_panel],
-        main=[main_panel],
-        sidebar_width=400,
-        sidebar_open=False,
-        sidebar_variant="auto",
-        logo=str(Path(__file__).parent / "dms_datastore_ui" / "california-department-of-water-resources-logo.png"),
+    template = ui.create_view(title="DMS Datastore")
+    template.logo = str(
+        Path(__file__).parent
+        / "dms_datastore_ui"
+        / "california-department-of-water-resources-logo.png"
     )
 
-    async def load_dataui():
-        await asyncio.sleep(0)
-        saved = _session_mgr.load_state(user_id)
-        from dms_datastore_ui.d1641_standards import get_default_wyt_file
-        loading_status.object = (
-            "**Preparing repository inventory, catalog references, and water-year types...**"
-        )
-        await asyncio.sleep(0)
-        uimgr = DatastoreUIMgr(_REPO_DIR, wyt_file=get_default_wyt_file())
-        uimgr.show_reset_session_button = True  # reset button wired in DataUI action row
-        if saved:
-            _restore(uimgr, saved)
+    _session_mgr.set_entry(
+        reg_key,
+        {
+            "template": template,
+            "mode": "dataui",
+            "mgr": uimgr,
+            "ui": ui,
+            "main_panel": None,
+        },
+    )
 
-        loading_status.object = "**Building the map, table, plot controls, and actions...**"
-        await asyncio.sleep(0)
-        ui = DataUI(
-            uimgr,
-            crs=ccrs.epsg(26910),
-            initial_map_extent=(-122.65, 37.55, -121.15, 38.75),
-        )
-        ui_page = ui.create_view(title="DMS Datastore")
+    def _save(event=None):
+        _session_mgr.save_state(user_id, _snapshot(uimgr, ui))
 
-        # Move the built content into the already-served outer Page.  The About /
-        # Disclaimer dialog lives in ui_page.main, so it moves along with it and
-        # the header buttons built by create_view() keep working.
-        sidebar_panel.objects = list(ui_page.sidebar)
-        main_panel.objects    = list(ui_page.main)
-        template.header       = list(ui_page.header)
-        ui_page.sidebar, ui_page.main, ui_page.header = [], [], []
+    uimgr.param.watch(_save, "time_range")
+    if hasattr(ui, "display_table"):
+        ui.display_table.param.watch(_save, "selection")
 
-        _session_mgr.set_entry(reg_key, {
-            "template": template, "mode": "dataui",
-            "mgr": uimgr, "ui": ui, "main_panel": main_panel,
-        })
-
-        def _save(event=None):
-            _session_mgr.save_state(user_id, _snapshot(uimgr, ui))
-
-        uimgr.param.watch(_save, "time_range")
-        if hasattr(ui, "display_table"):
-            ui.display_table.param.watch(_save, "selection")
-
-    pn.state.onload(load_dataui)
     template.servable(title="DMS Datastore")
 
 

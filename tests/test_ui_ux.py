@@ -164,12 +164,36 @@ def test_dead_home_page_is_removed():
     assert not (repo_root / "home.py").exists()
 
 
-def test_root_ui_defers_manager_construction_until_onload(monkeypatch):
+def test_root_ui_builds_final_models_before_serving(monkeypatch):
     import panel as pn
     import repoui
 
-    callbacks = []
     constructions = []
+
+    class FakeParam:
+        @staticmethod
+        def watch(*args, **kwargs):
+            pass
+
+    class FakeManager:
+        param = FakeParam()
+        show_reset_session_button = False
+
+    class FakePage:
+        def __init__(self):
+            self.logo = None
+            self.served = False
+
+        def servable(self, **kwargs):
+            self.served = True
+
+    class FakeUI:
+        def __init__(self, manager, **kwargs):
+            self.manager = manager
+            self.page = FakePage()
+
+        def create_view(self, **kwargs):
+            return self.page
 
     class FakeSessionManager:
         current_user_id = "test-user"
@@ -179,18 +203,33 @@ def test_root_ui_defers_manager_construction_until_onload(monkeypatch):
             return f"{user_id}:{mode}"
 
         @staticmethod
-        def get_entry(key):
-                raise AssertionError("Panel models must not be reused across documents")
+        def load_state(user_id):
+            return {}
+
+        @staticmethod
+        def set_entry(key, entry):
+            pass
+
+        @staticmethod
+        def save_state(user_id, state):
+            pass
 
     monkeypatch.setattr(repoui, "_session_mgr", FakeSessionManager())
+
+    def make_manager(*args, **kwargs):
+        constructions.append((args, kwargs))
+        return FakeManager()
+
+    monkeypatch.setattr(repoui, "DatastoreUIMgr", make_manager)
+    monkeypatch.setattr(repoui, "DataUI", FakeUI)
     monkeypatch.setattr(
-        repoui,
-        "DatastoreUIMgr",
-        lambda *args, **kwargs: constructions.append((args, kwargs)),
+        pn.state,
+        "onload",
+        lambda callback: (_ for _ in ()).throw(
+            AssertionError("root app must not swap models onload")
+        ),
     )
-    monkeypatch.setattr(pn.state, "onload", lambda callback: callbacks.append(callback))
 
     repoui.make_newui_app()
 
-    assert constructions == []
-    assert len(callbacks) == 1
+    assert len(constructions) == 1
