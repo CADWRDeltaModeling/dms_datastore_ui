@@ -20,7 +20,7 @@ def _bash():
     pytest.skip("Bash is required to test the server startup script")
 
 
-@pytest.mark.parametrize("fail_at", [0, 1, 2, 3, 4, 5])
+@pytest.mark.parametrize("fail_at", [0, 1, 2, 3, 4, 5, 6])
 def test_server_startup(tmp_path, fail_at):
     script = (Path(__file__).resolve().parents[1] / "run_server.sh").read_text()
     (tmp_path / "continuous").mkdir()
@@ -48,17 +48,20 @@ python() {
         line for line in result.stdout.splitlines()
         if line.startswith(("-m pip ", "-c ", "repoui.py "))
     ]
-    assert "vtools3.git#egg=vtools" in calls[0]
-    assert "--upgrade --no-deps" in calls[0]
+    assert "panel>=1.11.1" in calls[0]
+    assert "panel-material-ui>=0.17.0" in calls[0]
+    if len(calls) > 1:
+        assert "vtools3.git#egg=vtools" in calls[1]
+        assert "--upgrade --no-deps" in calls[1]
     if fail_at:
         assert result.returncode == 42, result.stderr
         assert len(calls) == fail_at
         assert not any(call.startswith("repoui.py ") for call in calls)
     else:
         assert result.returncode == 0, result.stderr
-        assert len(calls) == 6
-        assert "dvue.git" in calls[1]
-        assert "dms_datastore.git" in calls[2]
-        assert "max_change_test" in calls[4]
-        assert "from dms_datastore import auto_screen" in calls[4]
-        assert calls[5].startswith("repoui.py ")
+        assert len(calls) == 7
+        assert "dvue.git" in calls[2]
+        assert "dms_datastore.git" in calls[3]
+        assert "max_change_test" in calls[5]
+        assert "from dms_datastore import auto_screen" in calls[5]
+        assert calls[6].startswith("repoui.py ")

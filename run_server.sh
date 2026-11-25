@@ -1,5 +1,6 @@
 set -eu
 
+python -m pip install --upgrade "panel>=1.11.1" "panel-material-ui>=0.17.0"
 # Keep the screening dependency current when updating dms_datastore with --no-deps.
 python -m pip install --upgrade --no-deps git+https://github.com/CADWRDeltaModeling/vtools3.git#egg=vtools
 python -m pip install --upgrade --no-deps git+https://github.com/CADWRDeltaModeling/dvue.git#egg=dvue

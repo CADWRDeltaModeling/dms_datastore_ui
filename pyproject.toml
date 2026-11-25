@@ -39,7 +39,7 @@ dependencies = [
     "geoviews",
     "panel>=1.11.1",
     "bokeh>=3.10",
-    "panel-material-ui",
+    "panel-material-ui>=0.17.0",
     "diskcache",
     "joblib",
     "beautifulsoup4",
