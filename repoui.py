@@ -100,32 +100,10 @@ _REPO_DIR = "continuous"
 def make_newui_app():
     user_id  = _session_mgr.current_user_id
     reg_key  = _session_mgr.make_reg_key(user_id, "newui")
-    entry    = _session_mgr.get_entry(reg_key)
-    reuse_dataui = bool(entry and entry.get("mode") == "dataui")
-
-    if reuse_dataui:
-        # ── Registry hit: DataUI already built ──────────────────────────────
-        template   = entry["template"]
-        ui         = entry["ui"]
-        main_panel = entry.get("main_panel")
-
-        if main_panel is not None:
-            main_panel.loading = True
-
-        def _reattach():
-            try:
-                if ui:
-                    ui.setup_location_sync()
-                    ui.setup_url_sync()
-            finally:
-                if main_panel is not None:
-                    main_panel.loading = False
-
-        pn.state.onload(_reattach)
-        template.servable(title="DMS Datastore")
-        return
 
     # ── Build a fresh session ─────────────────────────────────────────────────
+    # Persisted state restores a user's selections, but the Panel/Bokeh models
+    # themselves must belong to exactly one Bokeh Document.
     loading_status = pn.pane.Markdown(
         "**Loading saved state and repository metadata...**",
         sizing_mode="stretch_width",

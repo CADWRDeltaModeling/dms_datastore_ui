@@ -180,7 +180,7 @@ def test_root_ui_defers_manager_construction_until_onload(monkeypatch):
 
         @staticmethod
         def get_entry(key):
-            return None
+                raise AssertionError("Panel models must not be reused across documents")
 
     monkeypatch.setattr(repoui, "_session_mgr", FakeSessionManager())
     monkeypatch.setattr(
